@@ -79,7 +79,7 @@
 #define RFM95_RST 10
 #define RFM95_INT 12
 #define RF95_FREQ 915.0
-#define RH_RF95_MAX_MESSAGE_LEN 32
+#define RH_RF95_MAX_MESSAGE_LEN 10
 #define CLIENT_ADDRESS 1
 #define SERVER_ADDRESS 2
 
@@ -115,7 +115,7 @@ Adafruit_BNO055 comp = Adafruit_BNO055(55);
 SparkFun_APDS9960 apds = SparkFun_APDS9960();
 #ifdef LoRaRadioPresent
   RH_RF95 rf95(RFM95_CS, RFM95_INT);
-  RHReliableDatagram manager(rf95, SERVER_ADDRESS);
+  //RHReliableDatagram manager(rf95, SERVER_ADDRESS);
 #endif
 
 static NMEAGPS  gps;
@@ -197,7 +197,7 @@ void setup() {
   if(!comp.begin())
   {
     #ifdef debug
-      Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+      Serial.println("BNO055 initialization failed");
     #endif
  //   failBlink();
   }
@@ -265,44 +265,22 @@ void setup() {
     delay(10);
     digitalWrite(RFM95_RST, HIGH);
     delay(10);
-
-    if(!manager.init())
-    {
-      #ifdef debug
-        Serial.println(F("Lora Radio Initialization Failed"));
-      #endif
-      failBlink();
+ 
+    while (!rf95.init()) {
+      Serial.println("LoRa radio init failed");
+      while (1);
     }
-    #ifdef debug
-      Serial.println(F("LoRa radio initialized successfully"));
-    #endif
-
+    Serial.println("LoRa radio init OK!");
+ 
+    // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
     if (!rf95.setFrequency(RF95_FREQ)) {
-      #ifdef debug
-        Serial.println(F("setFrequency failed"));
-      #endif
-      failBlink();
+      Serial.println("setFrequency failed");
+      while (1);
     }
-    #ifdef debug
-      Serial.print(F("Set Freq to: ")); Serial.print(RF95_FREQ); Serial.println(F(" Mhz"));
-    #endif
-
-    // The default transmitter power is 13dBm, using PA_BOOST.
-    // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then 
-    // you can set transmitter powers from 5 to 23 dBm:
-    rf95.setTxPower(10, false);
-
-    //Bw125Cr45Sf128 - Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on. Default medium range.
-    //Bw500Cr45Sf128 - Bw = 500 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on. Fast+short range.
-    //Bw31_25Cr48Sf512 - Bw = 31.25 kHz, Cr = 4/8, Sf = 512chips/symbol, CRC on. Slow+long range.
-    //Bw125Cr48Sf4096 - Bw = 125 kHz, Cr = 4/8, Sf = 4096chips/symbol, CRC on. Slow+long range.
-    rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
-
-    // You can optionally require this module to wait until Channel Activity
-    // Detection shows no activity on the channel before transmitting by setting
-    // the CAD timeout to non-zero:
-    rf95.setCADTimeout(10000);
-
+    Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+ 
+    rf95.setTxPower(23, false);
+    rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw500Cr45Sf128);
   #endif
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   bowOffset = 0;
@@ -328,15 +306,11 @@ void setup() {
   Peet.setSpeedMAD(speedMAD);
   Peet.setDirectionFilter(directionFilter);
   
-  //#ifndef LoRaRadioPresent
+  #ifndef LoRaRadioPresent
     attachInterrupt(digitalPinToInterrupt(ANEMOMETER_SPEED_PIN), isrSpeed, FALLING);
     attachInterrupt(digitalPinToInterrupt(ANEMOMETER_DIR_PIN), isrDirection, FALLING);
     tcConfigure(1000);  //1 second timer 
-  //#endif
-  #ifdef LoRaRadioPresent
-    attachInterrupt(digitalPinToInterrupt(RFM95_INT), isrRadio, FALLING);
   #endif
-  
   
   uint16_t w;
   apds.readAmbientLight(w);
@@ -344,7 +318,7 @@ void setup() {
   animateRedGreenWipe(60);  //pretty startup animation  
 }
 
-void displayIntFloat(int val, char lastChar);
+void displayIntFloat(int, char);  //compiler wants this and only this one for some reason.
 
 void loop() {
   static Mode curMode = AppWind;
@@ -355,7 +329,6 @@ void loop() {
   static int curHeelAngle;
   static uint32_t tempTimer;
   static bool locked = false;
-  int16_t curSpeed;
   static bool newSDData = false;
 
   //adjust wind ring brightness based on ambient light
@@ -396,11 +369,10 @@ void loop() {
           firstEntry = false;
         }
         ///////do AppWind
-        if(Peet.available()) { wndSpd = Peet.getSpeed(); }
         if(wndSpd > 0) { displayIntFloat(wndSpd,'\0'); }
         else { displayString("BEER"); }
         #ifdef noisyDebug
-          cout << "AWS: "  << Peet.getSpeed() << " AWA: " << Peet.getDirection() << endl;
+          cout << "AWS: "  << wndSpd << " AWA: " << Peet.getDirection() << endl;
         #endif
         //////Transition state
         if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
@@ -476,24 +448,22 @@ void loop() {
         if (globalFix.valid.speed) {
           _SOG = globalFix.speed()*100;
         }
-        if(Peet.available()) { 
-          _AWS = Peet.getSpeed();
-          _AWA = Peet.getDirection();
-        }
+
+        _AWA = Peet.getDirection();
         
         _SOG = 700;
         //_AWA = 88;
         //_AWS = 284;
         #ifdef noisyDebug
-          cout << "AWA: "  << _AWA << " AWS: " << _AWS << " SOG: " << _SOG << endl;
+          cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
         #endif
-        displayIntFloat(getTWS(_AWA, _AWS, _SOG), '\0');
+        displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
         #ifdef noisyDebug
-          cout << getTWS(_AWA, _AWS, _SOG) << endl;
+          cout << getTWS(_AWA, wndSpd, _SOG) << endl;
         #endif
-        displayWindPixel(getTWA(_AWA, _AWS, _SOG), WHITE);
+        displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
         #ifdef noisyDebug
-          cout << getTWA(_AWA, _AWS, _SOG) << endl;
+          cout << getTWA(_AWA, wndSpd, _SOG) << endl;
         #endif
         //////////////Transition State
         if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
@@ -610,12 +580,12 @@ void loop() {
   }
 
   if(Peet.available()) { 
-    curSpeed = Peet.getSpeed();   //need to fetch a new speed here just in case we're not in Apparent Wind mode.
+    wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop (right here)
   }
-
-  if(curSpeed > 0 && curMode != TrueWind)
+  
+  if(wndSpd > 0 && curMode != TrueWind)
       displayWindPixel(Peet.getDirection(), WHITE);
-  else if(curSpeed == 0)
+  else if(wndSpd == 0)
     restoreBackground();
 
   static uint16_t i_log = 0;
@@ -628,7 +598,7 @@ void loop() {
   if(millis() > logTimer+1000) {
     if(i_log < elements)
     {
-      speedBuf[i_log] = curSpeed;
+      speedBuf[i_log] = wndSpd;
       i_log++;
     }
     if(i_log == elements)
@@ -651,35 +621,39 @@ void loop() {
     logTimer = millis();
   }
   
-  if(curSpeed > windMax) { windMax = curSpeed; }
+  if(wndSpd > windMax) { windMax = wndSpd; }
   
   //Fetch all data from the GPS UART and feed it to the NeoGPS object
   //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
   while (Serial1.available()) { gps.handle(Serial1.read()); }
 
   //check for radio messages
-  #ifdef LoRaRadioPresent
-    uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
-    uint8_t len = sizeof(buf), from;
-    uint8_t data[] = "ACK";
-
-    if( manager.available() )
+  #ifdef LoRaRadioPresent 
+    if (rf95.available())
     {
-      //wait for a message addressed to us from the mast head
-      blip(RED_LED_PIN, 1, 20);
-      if (manager.recvfromAck(buf, &len, &from))
+      uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
+      uint8_t len = sizeof(buf);
+
+      if (rf95.recv(buf, &len))
       {
-        Serial.print("got request from : 0x");
-        Serial.print(from, HEX);
-        Serial.print(": ");
-        Serial.println((char*)buf);
-        Serial.print("RSSI: "); Serial.println(rf95.lastRssi(),DEC);
-        Serial.print("SNR: "); Serial.println(rf95.lastSNR(),DEC);
-        // Send a reply back to the originator client
-        if (!manager.sendtoWait(data, sizeof(data), from))
-          Serial.println("sendtoWait failed");
-        else
-          Serial.println("Ack Sent");
+        //cout << "RSSI: " << rf95.lastRssi() << endl;
+        //cout << "Last SNR: " << rf95.lastSNR() << endl;
+        uint16_t spd;
+        int16_t dir;
+        uint16_t batt;
+        memcpy(&spd, &buf, 2);
+        memcpy(&dir, &buf[2], 2);
+        memcpy(&batt, &buf[4], 2);
+        cout << "Battery Voltage: " << batt << endl;
+        Peet.ProcessWirelessData(spd, dir);
+        uint8_t data[] = "A";
+        rf95.send(data, sizeof(data));
+        //rf95.waitPacketSent();
+      }
+      else {
+        #ifdef debug
+          cout << "Receive failed" << endl;
+        #endif
       }
     }
   #endif
@@ -853,7 +827,7 @@ void displayTemp(char units)
     displayIntFloat(ctof(baro.readTemperature())*100, 'F');
 }
 ///////////////////////////////////////////////////////////Interrupt Handlers///////////////////////////////////////////////
-//#ifndef LoRaRadioPresent
+#ifndef LoRaRadioPresent
   void isrSpeed() {
     Peet.processSpeedTransition();
   }
@@ -864,24 +838,7 @@ void displayTemp(char units)
     Peet.slowTimer();
     TC5->COUNT16.INTFLAG.bit.MC0 = 1; //don't change this, it's part of the timer code
   }
-//#endif
-#ifdef LoRaRadioPresent
-  void isrRadio()
-  {
-    uint16_t speed;
-    int16_t direction;
-    uint8_t message[RH_RF95_MAX_MESSAGE_LEN];
-
-
-    //get message from mast head
-
-    memcpy(&speed, &message[0], 2);
-    memcpy(&direction, &message[2], 2);    //using memcpy rather than array assignment because message may not be memory aligned to 16bit boundaries. 
-    
-    Peet.ProcessWirelessData(speed, direction);
-  }
 #endif
-
 /////////////////////////////////////////////////////LED Ring Handling Functions////////////////////////////////////////////
 void animateRedGreenWipe(uint8_t wait) {
   //This is a background setting animation.

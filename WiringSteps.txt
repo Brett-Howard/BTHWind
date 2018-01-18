@@ -1,0 +1,18 @@
+Wiring Steps:
+
+Masthead Unit:
+    1. Wire RJ11 to pins 5-6 and GND.
+        pin 1 and 2 (black and red) to GND
+        pin 3 (green) is direction data.  Hook to pin 6
+        pin 4 (yellow) is speed data.  Hook to pin 5
+    2. Solar panel connection between USB and GND
+    3. Plug battery into JST-PH connector
+    4. Solder u.fl connector and install antenna
+
+Base Unit:
+    Stack LoRa Radio, Processor, and Alpha Numeric Display
+    I2C SCL/SDA + PWR and GND to Compass, Optical, and Baro sensors
+    +5V and GND to Alpha Display and LED Ring
+    Level translator from 3.3V to 5V on pin 11 to LED ring input pin
+    RX/TX + PWR/GND for GPS module
+    u.fl connector + antenna for LoRa module.

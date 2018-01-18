@@ -1,0 +1,26 @@
+bit 15 - n/A
+bit 14 - period
+bit 13 - K
+bit 12 - L
+bit 11 - M
+bit 10 - J
+bit 9 - I
+bit 8 - H
+bit 7 - G2
+bit 6 - G1
+bit 5 - F
+bit 4 - E
+bit 3 - D
+bit 2 - C
+bit 1 - B
+bit 0 - A
+
+Client
+#define RFM95_CS 8
+#define RFM95_RST 4
+#define RFM95_INT 3
+
+Server
+#define RFM95_CS 9
+#define RFM95_RST 10
+#define RFM95_INT 12

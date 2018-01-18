@@ -16,11 +16,11 @@ Anemometer::~Anemometer() {
 uint16_t Anemometer::getSpeed() {
 	uint32_t temp = 0;
 	
-	for(int i=0; i<speedList.size();i++) {
-		temp += speedList[i];
-	}
+    for(int i=0; i<speedList.size();i++) {
+        temp += speedList[i];
+    }
+    newDataAvail = false;		//only new speed clears this value as its the more expensive operation.
 	return(temp/speedList.size());
-	newDataAvail = false;		//only new speed clears this value as its the more expensive operation.
 }
 
 uint16_t Anemometer::getDirection() {
@@ -30,7 +30,7 @@ uint16_t Anemometer::getDirection() {
 void Anemometer::addSpeedToList(uint16_t knots) {
 	if( speedList.size() >= _speedMAD )
 	{
-		for(int i = speedList.size(); i > _speedMAD; i--)
+		for(int i = speedList.size(); i >= _speedMAD; i--)
 			speedList.pop_front();
 	}
 	speedList.push_back(knots);

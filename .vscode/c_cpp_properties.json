@@ -1,0 +1,37 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "includePath": [
+                "/Users/brett/Documents/Arduino/libraries/NeoHWSerial",
+                "/Users/brett/Documents/Arduino/libraries/Adafruit_LED_Backpack_Library",
+                "/Users/brett/Documents/Arduino/libraries/Adafruit_GFX_Library",
+                "/Users/brett/Documents/Arduino/libraries/Adafruit_APDS9960_Library",
+                "/Users/brett/Documents/Arduino/libraries/Low-Power-master",
+                "/Users/brett/Documents/Arduino/libraries/QList",
+                "/Users/brett/Documents/Arduino/libraries/lsm303-arduino-master",
+                "/Users/brett/Documents/Arduino/libraries/Adafruit_BMP280_Library",
+                "/Users/brett/Documents/Arduino/libraries/RadioHead",
+                "/Users/brett/Documents/Arduino/libraries/NeoGPS/src",
+                "/Users/brett/Documents/Arduino/libraries/Adafruit_LSM303DLHC",
+                "/Users/brett/Documents/Arduino/libraries/SdFat/src",
+                "/Users/brett/Documents/Arduino/libraries/Adafruit_NeoPixel_ZeroDMA-master",
+                "/Users/brett/Documents/Arduino/libraries/Adafruit_ZeroDMA-master",
+                "/Users/brett/Library/Arduino15/packages/adafruit/hardware/samd/1.0.21/cores/arduino",
+                "/System/Library/Frameworks/OpenCL.framework/Versions/A/lib/clang/2.0/include"
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": false,
+                "path": [
+                    "/Users/brett/Library/Arduino15/packages/adafruit/hardware/samd/1.0.21/cores/arduino"
+                ]
+            },
+            "intelliSenseMode": "clang-x64",
+            "macFrameworkPath": [
+                "/System/Library/Frameworks",
+                "/Library/Frameworks"
+            ]
+        }
+    ],
+    "version": 3
+}
