@@ -21,7 +21,7 @@
 //APDS9960 - 39h
 //BMP280 - 77h
 
-#define debug             //comment this out to not depend on USB uart.
+//#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -48,13 +48,13 @@
   #define DIM_WHITE   0x3F3F3F  
 #endif
 
-#ifdef RGBW  //actually WRGB
+#ifdef RGBW  //actually WGRB
   #define OFF           0x00000000
   #define BLACK         0x00000000
-  #define RED           0x00FF0000
-  #define DIM_RED       0x003F0000
-  #define GREEN         0x0000FF00
-  #define DIM_GREEN     0x00003F00
+  #define GREEN         0x00FF0000
+  #define DIM_GREEN     0x003F0000
+  #define RED           0x0000FF00
+  #define DIM_RED       0x00003F00
   #define BLUE          0x000000FF
   #define DIM_BLUE      0x0000003F
   #define YELLOW        0x00FFFF00
@@ -121,10 +121,11 @@ SparkFun_APDS9960 apds = SparkFun_APDS9960();
 static NMEAGPS  gps;
 static gps_fix globalFix;
 
-enum Mode { AppWind, WindStats, TrueWind, CompHead, COG, SOG, Baro, Temp, Heel }; 
+enum Mode { AppWind, WindStats, TrueWind, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
 
 int16_t bowOffset, declination;
-uint8_t speedMAD; 
+uint8_t speedMAD;
+uint16_t windUpdateRate;
 uint16_t directionFilter;
 uint8_t heelAngle;
 uint16_t menuDelay;
@@ -280,7 +281,7 @@ void setup() {
     Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
  
     rf95.setTxPower(23, false);
-    rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw500Cr45Sf128);
+    rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   bowOffset = 0;
@@ -330,6 +331,7 @@ void loop() {
   static uint32_t tempTimer;
   static bool locked = false;
   static bool newSDData = false;
+  static uint16_t battVoltage;
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -369,7 +371,12 @@ void loop() {
           firstEntry = false;
         }
         ///////do AppWind
-        if(wndSpd > 0) { displayIntFloat(wndSpd,'\0'); }
+        if(wndSpd > 0) {
+          if(millis() > tempTimer + windUpdateRate) {
+            displayIntFloat(wndSpd,'\0');
+            tempTimer = millis();
+          }
+        }
         else { displayString("BEER"); }
         #ifdef noisyDebug
           cout << "AWS: "  << wndSpd << " AWA: " << Peet.getDirection() << endl;
@@ -408,7 +415,7 @@ void loop() {
           windStats.close();
         }
         /////////////do WindStats
-          
+
         //show the values on the display
         if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying (should change the gestures to interrupt driven)
           displayString("AVG ");
@@ -454,17 +461,21 @@ void loop() {
         _SOG = 700;
         //_AWA = 88;
         //_AWS = 284;
-        #ifdef noisyDebug
-          cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
-        #endif
-        displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
-        #ifdef noisyDebug
-          cout << getTWS(_AWA, wndSpd, _SOG) << endl;
-        #endif
-        displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
-        #ifdef noisyDebug
-          cout << getTWA(_AWA, wndSpd, _SOG) << endl;
-        #endif
+        if(millis() > tempTimer + windUpdateRate) {
+          #ifdef noisyDebug
+            cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
+          #endif
+          displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
+          #ifdef noisyDebug
+            cout << getTWS(_AWA, wndSpd, _SOG) << endl;
+          #endif
+          displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
+          #ifdef noisyDebug
+            cout << getTWA(_AWA, wndSpd, _SOG) << endl;
+          #endif
+          tempTimer = millis();
+        }   
+        
         //////////////Transition State
         if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
         else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
@@ -530,7 +541,7 @@ void loop() {
 
         //////////////////Transition State
         if(gesture == DIR_LEFT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = MastBatt; firstEntry = true; }
         else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = SOG; firstEntry = true; }
         break;
     
@@ -564,12 +575,23 @@ void loop() {
           tempTimer = millis(); 
         } 
         ///////////////Transition State
-        if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
+        if(gesture == DIR_LEFT) { curMode = MastBatt; firstEntry = true; }
         else if(gesture == DIR_RIGHT) { curMode = Baro; firstEntry = true; }
         else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Temp; firstEntry = true; }
         break;
     
-    
+    case MastBatt:
+        if(firstEntry) {
+          scrollString("MAST BATTERY", sizeof("MAST BATTERY"), menuDelay);
+          firstEntry = false;
+        }
+        ///////////////Do MastBatt
+        displayIntFloat(battVoltage, 'V');
+        ///////////////Transition State
+        if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
+        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
+        break;
     case Heel:
         scrollString("Reduce Heel", sizeof("Reduce Heel"), menuDelay);
         displayAngle(curHeelAngle);
@@ -577,6 +599,8 @@ void loop() {
         firstEntry = true;  //set so that upon returning you display menu heading
         curMode = prevMode; //return to previous mode before heel warning
         break;
+
+    
   }
 
   if(Peet.available()) { 
@@ -633,6 +657,7 @@ void loop() {
     {
       uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
       uint8_t len = sizeof(buf);
+      uint8_t data[RH_RF95_MAX_MESSAGE_LEN];
 
       if (rf95.recv(buf, &len))
       {
@@ -640,14 +665,23 @@ void loop() {
         //cout << "Last SNR: " << rf95.lastSNR() << endl;
         uint16_t spd;
         int16_t dir;
-        uint16_t batt;
-        memcpy(&spd, &buf, 2);
-        memcpy(&dir, &buf[2], 2);
-        memcpy(&batt, &buf[4], 2);
-        cout << "Battery Voltage: " << batt << endl;
-        Peet.ProcessWirelessData(spd, dir);
-        uint8_t data[] = "A";
-        rf95.send(data, sizeof(data));
+
+        if(stricmp((char*)buf,"McFly") == 0) {
+          strcpy((char*)data, "HiBiff");
+          #ifdef debug
+            cout << "Got McFly?...  Sending \"HiBiff\"" << endl;
+          #endif
+        }
+        else {
+          cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+          strcpy((char*)data, "A");
+          memcpy(&spd, &buf, 2);
+          memcpy(&dir, &buf[2], 2);
+          memcpy(&battVoltage, &buf[4], 2);
+          cout << spd << " " << dir << " " << battVoltage << endl;
+          Peet.ProcessWirelessData(spd, dir);
+        }
+        rf95.send(data, sizeof(data));  //transmit response
         //rf95.waitPacketSent();
       }
       else {
@@ -785,14 +819,27 @@ void scrollString(char *s, uint8_t size, uint16_t speed)
     alpha4.writeDisplay();
     delay(speed);
   }
+  delay(speed*2);
 }
 
 void displayIntFloat(int val, char lastChar = '\0')  //displays 2 digits of precision and expects the value as an int (float val * 100)
 {
+  if(lastChar == 'V' || lastChar == 'v')
+  {
+    val = val*10;
+  }
   char s[5];
   sprintf(s,"%i%i%i%i",val/1000%10,val/100%10,val/10%10,val%10);
-  alpha4.writeDigitAscii(0,s[0]);
-  alpha4.writeDigitAscii(1,s[1], true);
+  if(lastChar == 'V' || lastChar == 'v')
+    alpha4.writeDigitAscii(0,s[0], true);
+  else
+    alpha4.writeDigitAscii(0,s[0]);
+  
+  if(lastChar == 'V' || lastChar == 'v')
+    alpha4.writeDigitAscii(1,s[1]);
+  else
+    alpha4.writeDigitAscii(1,s[1], true);
+
   alpha4.writeDigitAscii(2,s[2]);
   if(lastChar != '\0') alpha4.writeDigitAscii(3,lastChar);
   else alpha4.writeDigitAscii(3,s[3]);
@@ -947,6 +994,7 @@ static bool readConfig () {
       logfile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
       logfile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
       logfile.print(F("# SpeedMAD: Speed Moving Average Depth\n"));
+      logfile.print(F("# WindUpdateRate: Delay between display updates for wind speed modes.\n"));
       logfile.print(F("# DirectionFilter: range(.001 to 1)*1000; lower = more filtering; 1000=no filtering\n"));
       logfile.print(F("# Timezone: Timezone needed to properly timestamp files\n"));
       logfile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
@@ -959,8 +1007,9 @@ static bool readConfig () {
       logfile.print(F("HeelAngle=12\n"));
       logfile.print(F("MenuScrollSpeed=150\n"));
       logfile.print(F("TempUnits=f\n"));
-      logfile.print(F("SpeedMAD=1\n"));
-      logfile.print(F("DirectionFilter=1000\n"));
+      logfile.print(F("SpeedMAD=12\n"));
+      logfile.print(F("WindUpdateRate=500\n"));
+      logfile.print(F("DirectionFilter=250\n"));
       logfile.print(F("Timezone=-8\n"));
       logfile.print(F("GPSUpdateRate=1000\n"));
       logfile.print(F("BaroRefAlt=374"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
@@ -979,6 +1028,7 @@ static bool readConfig () {
     if (cfg.nameIs("TempUnits")) { strncpy(&tempUnits, cfg.copyValue(), 1); }
     if (cfg.nameIs("MenuScrollSpeed")) { menuDelay = cfg.getIntValue(); }
     if (cfg.nameIs("SpeedMAD")) { speedMAD = cfg.getIntValue(); }
+    if (cfg.nameIs("WindUpdateRate")) { windUpdateRate = cfg.getIntValue(); }
     if (cfg.nameIs("DirectionFilter")) { directionFilter = cfg.getIntValue(); }
     if (cfg.nameIs("Timezone")) { TimeZone = cfg.getIntValue(); }
     if (cfg.nameIs("GPSUpdateRate")) { delayBetweenFixes = cfg.getIntValue(); }
