@@ -394,15 +394,13 @@ void loop() {
   //Determine if we're over heeling
   bno.getEvent(&compEvent);
   curHeelAngle = abs(compEvent.orientation.y);
-  if(curHeelAngle > heelAngle && heelAngle != 0) {
-    if(curMode != Heel) {
-      prevMode = curMode;
-      firstEntry = true;   //this will ensure the display of "Reduce Heel" on entry of Heel state
-    }
+  if(curHeelAngle > heelAngle && heelAngle != 0 && curMode != Heel) {
+    prevMode = curMode;
+    firstEntry = true;   //this will ensure the display of "Reduce Heel" on entry of Heel state
     curMode = Heel;
   }
-  else if(curMode == Heel) {
-    curMode = prevMode;
+  else if(curMode == Heel && curHeelAngle < heelAngle) {
+    curMode = prevMode;   //return to previous mode
     firstEntry = true;    //tell the user what mode they used to be in (not sure if I want to keep this)
   }
 
@@ -552,9 +550,8 @@ void loop() {
         }
         /////////////do CompHead
         
-        uint16_t heading;
-        int16_t pitch, roll;
-        uint8_t system, gyro, accel, mag;
+        static uint16_t heading;
+        static uint8_t system, gyro, accel, mag;
         system = gyro = accel = mag = 0;
 
         bno.getCalibration(&system, &gyro, &accel, &mag);
@@ -562,7 +559,7 @@ void loop() {
         if(mag < 1)
           displayString("CAL ");
         else {
-          bno.getEvent(&compEvent);
+          //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
           
           heading = compEvent.orientation.x;
           displayAngle(heading);
