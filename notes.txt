@@ -24,3 +24,9 @@ Server
 #define RFM95_CS 9
 #define RFM95_RST 10
 #define RFM95_INT 12
+
+Accelerometer: 19 33 14 
+Gyro: 0 0 1 
+Mag: 217 -59 -145 
+Accel Radius: 1000
+Mag Radius: 794

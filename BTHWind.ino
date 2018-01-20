@@ -4,7 +4,6 @@
 #include <Wire.h>                       //I2C Support
 #include <SdFat.h>                      //SD Card FAT file system
 #include <SDConfigFile.h>               //Read config files
-#include <LSM303.h>                     //Polulu library for LSM303 Compass/Accelerometer (which actually works)
 #include <Adafruit_BNO055.h>            //Library for a 9DOF IMU that should have a magnetometer with lower angle noise
 #include <Adafruit_BMP280.h>            //support for barometric pressure sensor
 #include <Adafruit_GFX.h>               //Font support for 14-seg LEDs
@@ -20,8 +19,9 @@
 //LSM303 - 19h or 1Eh
 //APDS9960 - 39h
 //BMP280 - 77h
+//LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
+#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -110,8 +110,7 @@ ArduinoOutStream cout(Serial);
 Anemometer Peet(ANEMOMETER_SPEED_PIN, ANEMOMETER_DIR_PIN, 8, 125);
 Adafruit_AlphaNum4 alpha4 = Adafruit_AlphaNum4();
 Adafruit_BMP280 baro;
-LSM303 compass;
-Adafruit_BNO055 comp = Adafruit_BNO055(55);
+Adafruit_BNO055 bno = Adafruit_BNO055(55);
 SparkFun_APDS9960 apds = SparkFun_APDS9960();
 #ifdef LoRaRadioPresent
   RH_RF95 rf95(RFM95_CS, RFM95_INT);
@@ -172,46 +171,7 @@ void setup() {
       Serial.println(F("Barometric pressure sensor initialized"));
     #endif
   }
-//////////////////////////////////////Startup Magnetometer and Accelerometer//////////////////////////////////////////
-  if(!compass.init()) {
-    #ifdef debug
-      Serial.println("Compass failed to initialize");
-    #endif
-  }
-  else {
-    #ifdef debug
-      Serial.println("Compass initialized successfully");
-    #endif
-    compass.enableDefault();
-    compass.writeMagReg(0x01, 0xE0);  //sets magnetic gain to minimum (in an effort to reduce compass angle noise)
-    
-    //Feed compass calibration data use sample sketch to get these values
-    //compass.m_min = (LSM303::vector<int16_t>){-408, -633, -784};
-    //compass.m_max = (LSM303::vector<int16_t>){+683, +496, +323};
 
-    //These are the values I got when using minimum gain settings
-    compass.m_min = (LSM303::vector<int16_t>){-80, -138, -167};
-    compass.m_max = (LSM303::vector<int16_t>){+129, +102, +55};
-  }
-
-  /////////Begin of new Bosch 9DOF sensor that hopefully has less compass angle noise. 
-  if(!comp.begin())
-  {
-    #ifdef debug
-      Serial.println("BNO055 initialization failed");
-    #endif
- //   failBlink();
-  }
-
-  uint8_t system, gyro, accel, mag;
-  system = gyro = accel = mag = 0;
-
-  //read in calibration from compCal file.
-
-  while(system < 3 || gyro < 3  || accel < 3 || mag < 3)
-    comp.getCalibration(&system, &gyro, &accel, &mag);
-
-  
 ///////////////////////////////////////Startup Ambient Light and Gesture Sensor///////////////////////////////////////
   if(apds.init()) {
     #ifdef debug
@@ -283,11 +243,100 @@ void setup() {
     rf95.setTxPower(23, false);
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  bowOffset = 0;
+///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
   if(initSD()) {
     Serial.print(F("Card size: ")); Serial.print(sd.card()->cardSize() * 0.000512 + 0.5); Serial.println(" MiB");
     Serial.print(F("Card free: ")); Serial.print(sd.vol()->freeClusterCount() * .000512 * sd.vol()->blocksPerCluster()); Serial.println(" MiB");
+  }
+  
+//////////////////////////////////////Startup Magnetometer and Accelerometer//////////////////////////////////////////
+  if(!bno.begin())
+  {
+    #ifdef debug
+      Serial.println("BNO055 initialization failed");
+    #endif
+    failBlink();
+  }
+  #ifdef debug
+    cout << "BNO055 Compass Initialized" << endl;
+  #endif
+
+  uint8_t system, gyro, accel, mag;
+  system = gyro = accel = mag = 0;
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+//sd.remove("/!CONFIG/IMUCAL.DAT");           //uncomment this line to erase the IMU calibration data//
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  if(!sd.exists("/!CONFIG/IMUCAL.DAT")) {
+    while(system < 3 || gyro < 3 || accel < 3 || mag < 3) {
+      bno.getCalibration(&system, &gyro, &accel, &mag);
+      Serial.print("Sys:");
+      Serial.print(system, DEC);
+      Serial.print(" G:");
+      Serial.print(gyro, DEC);
+      Serial.print(" A:");
+      Serial.print(accel, DEC);
+      Serial.print(" M:");
+      Serial.println(mag, DEC);
+    }
+  }
+  
+  adafruit_bno055_offsets_t offsets;
+
+  bno.getSensorOffsets(offsets);
+  
+  #ifdef debug
+    displaySensorOffsets(offsets); 
+  #endif
+  
+  if(!sd.exists("/!CONFIG/IMUCAL.DAT")) {
+    #ifdef debug
+      cout << "Compass calibration file did not exist." << endl;
+    #endif
+    if(compCal.open("/!CONFIG/IMUCAL.DAT", O_CREAT | O_WRITE | O_EXCL)) {
+      cout << "New compass calibration file created." << endl;
+      compCal.print(offsets.accel_offset_x); compCal.print(',');
+      compCal.print(offsets.accel_offset_y); compCal.print(',');
+      compCal.print(offsets.accel_offset_z); compCal.print(',');
+      compCal.print(offsets.gyro_offset_x); compCal.print(',');
+      compCal.print(offsets.gyro_offset_y); compCal.print(',');
+      compCal.print(offsets.gyro_offset_z); compCal.print(',');
+      compCal.print(offsets.mag_offset_x); compCal.print(',');
+      compCal.print(offsets.mag_offset_y); compCal.print(',');
+      compCal.print(offsets.mag_offset_z); compCal.print(',');
+      compCal.print(offsets.accel_radius); compCal.print(',');
+      compCal.print(offsets.mag_radius); compCal.print(',');
+    }
+    compCal.close(); 
+  }
+
+  if(compCal.open("/!CONFIG/IMUCAL.DAT", O_READ))
+  {
+    #ifdef debug
+      cout << "Reading input from IMU calibration file" << endl;
+    #endif
+    
+    int i = 0;
+    int16_t num;
+    
+    offsets.accel_offset_x = csvReadInt16(&compCal, &num, ',');
+    offsets.accel_offset_y = csvReadInt16(&compCal, &num, ',');
+    offsets.accel_offset_z = csvReadInt16(&compCal, &num, ',');
+    offsets.gyro_offset_x = csvReadInt16(&compCal, &num, ',');
+    offsets.gyro_offset_y = csvReadInt16(&compCal, &num, ',');
+    offsets.gyro_offset_z = csvReadInt16(&compCal, &num, ',');
+    offsets.mag_offset_x = csvReadInt16(&compCal, &num, ',');
+    offsets.mag_offset_y = csvReadInt16(&compCal, &num, ',');
+    offsets.mag_offset_z = csvReadInt16(&compCal, &num, ',');
+    offsets.accel_radius = csvReadInt16(&compCal, &num, ',');
+    offsets.mag_radius = csvReadInt16(&compCal, &num, ',');
+    
+    #ifdef debug
+      displaySensorOffsets(offsets);
+    #endif
+
+    bno.setSensorOffsets(offsets);  //squirt the calibration into the IMU object
   }
   
   if(!readConfig()) {  //read configuration from SD card
@@ -332,6 +381,7 @@ void loop() {
   static bool locked = false;
   static bool newSDData = false;
   static uint16_t battVoltage;
+  static sensors_event_t compEvent;
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -339,10 +389,18 @@ void loop() {
   strip.show();
 
   //Determine if we're over heeling
-  curHeelAngle = abs(getHeelAngle());
+  bno.getEvent(&compEvent);
+  curHeelAngle = abs(compEvent.orientation.y);
   if(curHeelAngle > heelAngle && heelAngle != 0) {
-    prevMode = curMode;
+    if(curMode != Heel) {
+      prevMode = curMode;
+      firstEntry = true;   //this will ensure the display of "Reduce Heel" on entry of Heel state
+    }
     curMode = Heel;
+  }
+  else if(curMode == Heel) {
+    curMode = prevMode;
+    firstEntry = true;    //tell the user what mode they used to be in (not sure if I want to keep this)
   }
 
   //use DIR_NEAR and DIR_FAR gestures to lock the menu
@@ -490,18 +548,23 @@ void loop() {
           firstEntry = false;
         }
         /////////////do CompHead
-        sensors_event_t event;
-        comp.getEvent(&event);
         
-        //update compass once per second in a non blocking way so as to make gesture reaction faster.
-        if(millis() > tempTimer+1000) { 
-          //uint16_t heading = round(event.orientation.x);
-          uint16_t heading = int(compass.heading((LSM303::vector<int>){1, 0, 0}));
-          heading += declination;
-          heading = (heading + 360) % 360;
-          displayAngle(heading); 
-          tempTimer = millis();
+        uint16_t heading;
+        int16_t pitch, roll;
+        uint8_t system, gyro, accel, mag;
+        system = gyro = accel = mag = 0;
+
+        bno.getCalibration(&system, &gyro, &accel, &mag);
+
+        if(mag < 1)
+          displayString("CAL ");
+        else {
+          bno.getEvent(&compEvent);
+          
+          heading = compEvent.orientation.x;
+          displayAngle(heading);
         }
+
         ///////////Transition State
         if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
         else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
@@ -593,14 +656,18 @@ void loop() {
         else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
         break;
     case Heel:
-        scrollString("Reduce Heel", sizeof("Reduce Heel"), menuDelay);
-        displayAngle(curHeelAngle);
-        delay(500);
-        firstEntry = true;  //set so that upon returning you display menu heading
-        curMode = prevMode; //return to previous mode before heel warning
+        if(firstEntry) {
+          scrollString("Reduce Heel", sizeof("Reduce Heel"), menuDelay/2);
+          firstEntry = false;
+          tempTimer = millis();
+        }
+        if(millis() > tempTimer && millis() < tempTimer+5000) {
+          displayAngle(curHeelAngle);
+        }
+        if(millis() > tempTimer+5000) {
+          firstEntry = true;  //set so that upon returning you display menu heading
+        }
         break;
-
-    
   }
 
   if(Peet.available()) { 
@@ -661,8 +728,6 @@ void loop() {
 
       if (rf95.recv(buf, &len))
       {
-        //cout << "RSSI: " << rf95.lastRssi() << endl;
-        //cout << "Last SNR: " << rf95.lastSNR() << endl;
         uint16_t spd;
         int16_t dir;
 
@@ -673,12 +738,12 @@ void loop() {
           #endif
         }
         else {
-          cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+          //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
           strcpy((char*)data, "A");
           memcpy(&spd, &buf, 2);
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
-          cout << spd << " " << dir << " " << battVoltage << endl;
+          //cout << spd << " " << dir << " " << battVoltage << endl;
           Peet.ProcessWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit response
@@ -758,31 +823,30 @@ int freeRam () {
   char stack_dummy = 0;
   return &stack_dummy - sbrk(0);
 }
-///////////////////////////////////////////////Compass/Accelerometer Helper Functions///////////////////////////////////////////////
-int16_t getCompassHeading() {      //this is bogus crap 
-  compass.read();
-  float heading = atan2(compass.m.y,compass.m.x);
-  if (heading < 0) heading += 2*PI;
-  return int(radToDeg(heading));
-}
+///////////////////////////////////////////////Compass/Accelerometer Helper Functions////////////////////////////////////////////////////
+void displaySensorOffsets(const adafruit_bno055_offsets_t &calibData)
+{
+    Serial.print("Accelerometer: ");
+    Serial.print(calibData.accel_offset_x); Serial.print(" ");
+    Serial.print(calibData.accel_offset_y); Serial.print(" ");
+    Serial.print(calibData.accel_offset_z); Serial.print(" ");
 
-int16_t getAngleCompensatedCompassHeading() {    //this is boguser crap
-  compass.read();
-  float xh, yh, pitch, roll, heading;
-  pitch = atan2(compass.a.x, compass.a.z);
-  roll = -1*(atan2(compass.a.y, compass.a.z));
-  xh = (compass.m.x * cos(pitch)) + (-1 * compass.m.z * sin(pitch));
-  yh = (compass.m.x * sin(roll) * sin(pitch)) + (compass.m.y * cos(roll)) - (-1 * compass.m.z * sin(roll) * cos(pitch));
-  heading = atan2(yh,xh);
-  if(heading < 0) heading += 2*PI;
-  return int(radToDeg(heading));
-}
+    Serial.print("\nGyro: ");
+    Serial.print(calibData.gyro_offset_x); Serial.print(" ");
+    Serial.print(calibData.gyro_offset_y); Serial.print(" ");
+    Serial.print(calibData.gyro_offset_z); Serial.print(" ");
 
-int32_t getHeelAngle() {     //LSM303 version
-  //negative is heel to port
-  compass.read();
-  return(radToDeg(atan2(compass.a.y,compass.a.z))); 
-}  
+    Serial.print("\nMag: ");
+    Serial.print(calibData.mag_offset_x); Serial.print(" ");
+    Serial.print(calibData.mag_offset_y); Serial.print(" ");
+    Serial.print(calibData.mag_offset_z); Serial.print(" ");
+
+    Serial.print("\nAccel Radius: ");
+    Serial.print(calibData.accel_radius);
+
+    Serial.print("\nMag Radius: ");
+    Serial.println(calibData.mag_radius);
+}
 
 ///////////////////////////////////////////////14 Segment Display Helper Functions///////////////////////////////////////////////////////
 void displayString(char s[4]) {
@@ -968,8 +1032,8 @@ static void failBlink() {
 ///////////////////////////////////////////////////////SD Card Handling Functions////////////////////////////////////////////
 static bool readConfig () {
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  //sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
-  //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
+  //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
+  sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   if (!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) {
     sd.mkdir("!CONFIG");
@@ -1005,7 +1069,7 @@ static bool readConfig () {
       logfile.print(F("BowOffset=0\n"));
       logfile.print(F("MagVariance=15\n"));
       logfile.print(F("HeelAngle=12\n"));
-      logfile.print(F("MenuScrollSpeed=150\n"));
+      logfile.print(F("MenuScrollSpeed=100\n"));
       logfile.print(F("TempUnits=f\n"));
       logfile.print(F("SpeedMAD=12\n"));
       logfile.print(F("WindUpdateRate=500\n"));
@@ -1125,6 +1189,26 @@ int csvReadUint16(SdFile* file, uint16_t* num, char delim) {
   if (tmp > UINT_MAX) return -5;
   *num = tmp;
   return rtn;
+}
+
+int csvReadInt32(SdFile* file, int32_t* num, char delim) {
+  char buf[20];
+  char* ptr;
+  int rtn = csvReadText(file, buf, sizeof(buf), delim);
+  if (rtn < 0) return rtn;
+  *num = strtol(buf, &ptr, 10);
+  if (buf == ptr) return -3;
+  while(isspace(*ptr)) ptr++;
+  return *ptr == 0 ? rtn : -4;
+}
+
+int csvReadInt16(SdFile* file, int16_t* num, char delim) {
+  int32_t tmp;
+  int rtn = csvReadInt32(file, &tmp, delim);
+  if (rtn < 0) return rtn;
+  if (tmp < INT_MIN || tmp > INT_MAX) return -5;
+  *num = tmp;
+  return tmp;
 }
 
 //////////////////////////////////////////////////////Timer Counter Configuration///////////////////////////////////////////////////
