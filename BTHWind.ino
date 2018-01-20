@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
+#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -385,15 +385,21 @@ void loop() {
   static bool newSDData = false;
   static uint16_t battVoltage;
   static sensors_event_t compEvent;
+  static uint8_t compTimer;
 
+  cout << "starting loop" << endl;
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
   strip.setBrightness(map(w,0,37889,5,255));
   strip.show();
 
+  cout << "About to check heel" << endl;
   //Determine if we're over heeling
-  bno.getEvent(&compEvent);
-  curHeelAngle = abs(compEvent.orientation.y);
+  if(millis() > compTimer + 50) {
+    bno.getEvent(&compEvent);
+    curHeelAngle = abs(compEvent.orientation.y);
+    compTimer = millis();
+  }
   if(curHeelAngle > heelAngle && heelAngle != 0 && curMode != Heel) {
     prevMode = curMode;
     firstEntry = true;   //this will ensure the display of "Reduce Heel" on entry of Heel state
@@ -404,6 +410,7 @@ void loop() {
     firstEntry = true;    //tell the user what mode they used to be in (not sure if I want to keep this)
   }
 
+  cout << "About to check gesture" << endl;
   //use DIR_NEAR and DIR_FAR gestures to lock the menu
   if (apds.isGestureAvailable()) gesture = apds.readGesture();
   if (gesture == DIR_NEAR || locked)
@@ -422,6 +429,7 @@ void loop() {
     }
   }
 
+  cout << "Entering Switch" << endl;
   switch(curMode)
   {
     case AppWind:
@@ -562,7 +570,7 @@ void loop() {
           //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
           
           heading = compEvent.orientation.x;
-          displayAngle(heading);
+          displayAngle(heading, 'M');
         }
 
         ///////////Transition State
@@ -581,7 +589,7 @@ void loop() {
         if(gps.available())
           globalFix = gps.read();
         if (globalFix.valid.speed) {
-          displayAngle(uint16_t(globalFix.heading()));
+          displayAngle(uint16_t(globalFix.heading()), 'T');
         }
         //////////////////Transition State
         if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
@@ -662,7 +670,7 @@ void loop() {
           tempTimer = millis();
         }
         if(millis() > tempTimer && millis() < tempTimer+5000) {
-          displayAngle(curHeelAngle);
+          displayAngle(curHeelAngle, '\0');
         }
         if(millis() > tempTimer+5000) {
           firstEntry = true;  //set so that upon returning you display menu heading
@@ -670,10 +678,13 @@ void loop() {
         break;
   }
 
+  cout << "Exiting switch" << endl;
+
   if(Peet.available()) { 
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop (right here)
   }
-  
+
+  cout << "Updating Wind Dir Ring" << endl;
   if(wndSpd > 0 && curMode != TrueWind)
       displayWindPixel(Peet.getDirection(), WHITE);
   else if(wndSpd == 0)
@@ -685,6 +696,7 @@ void loop() {
   static uint32_t logTimer = 0;
   uint16_t elements = sizeof(speedBuf)/sizeof(speedBuf[0]);
   
+  cout << "Entering Stats Accumulation" << endl;
   //accumulate a pile of wind speeds then average them every so often and write that value out to the SD card
   if(millis() > logTimer+1000) {
     if(i_log < elements)
@@ -699,6 +711,7 @@ void loop() {
         accum += speedBuf[i];
       }
       accum /= elements;
+      cout << "About to write to SD windstat logfile" << endl;
       if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
           windStats.print(accum); windStats.print(','); windStats.println(Peet.getDirection());
           blip(GREEN_LED_PIN,3,20);
@@ -712,12 +725,14 @@ void loop() {
     logTimer = millis();
   }
   
+  cout << "Updating max wind speed" << endl;
   if(wndSpd > windMax) { windMax = wndSpd; }
   
   //Fetch all data from the GPS UART and feed it to the NeoGPS object
   //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
   while (Serial1.available()) { gps.handle(Serial1.read()); }
 
+  cout << "About to handle radio traffic" << endl;
   //check for radio messages
   #ifdef LoRaRadioPresent 
     if (rf95.available())
@@ -756,7 +771,7 @@ void loop() {
       }
     }
   #endif
-
+  cout << "loop complete" << endl;
   //cout << F("Free Mem: ") << freeRam() << endl;
   
 }  //loop
@@ -859,14 +874,17 @@ void displayString(char s[4]) {
   }
 }
 
-void displayAngle(uint16_t val)
+void displayAngle(uint16_t val, char lastChar)
 {
   char s[4];
   sprintf(s,"%i%i%i",val/100%10,val/10%10,val%10);
   alpha4.writeDigitAscii(0,s[0]);
   alpha4.writeDigitAscii(1,s[1]);
   alpha4.writeDigitAscii(2,s[2]);
-  alpha4.writeDigitRaw(3,0b000000011100011);
+  if(lastChar == '\0')
+    alpha4.writeDigitRaw(3,0b000000011100011);  //degrees symbol
+  else
+    alpha4.writeDigitAscii(3,lastChar);
   alpha4.writeDisplay();
 }
 
