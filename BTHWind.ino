@@ -309,7 +309,7 @@ void setup() {
       compCal.print(offsets.mag_offset_y); compCal.print(',');
       compCal.print(offsets.mag_offset_z); compCal.print(',');
       compCal.print(offsets.accel_radius); compCal.print(',');
-      compCal.print(offsets.mag_radius); compCal.print(',');
+      compCal.print(offsets.mag_radius);
     }
     compCal.close(); 
   }
