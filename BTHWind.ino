@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug             //comment this out to not depend on USB uart.
+//#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -158,7 +158,7 @@ void setup() {
   strip.show(); // Initialize all pixels to 'off'
 
   alpha4.begin(0x70);  // pass in the address
-  scrollString("BTHWind", sizeof("BTHWind"), 300);
+  scrollString("BTHWind", sizeof("BTHWind"), 200);
   
 ///////////////////////////////////////Startup Barometric Sensor/////////////////////////////////////////////////////
   if (!baro.begin()) {
@@ -261,13 +261,16 @@ void setup() {
     cout << "BNO055 Compass Initialized" << endl;
   #endif
 
-  uint8_t system, gyro, accel, mag;
-  system = gyro = accel = mag = 0;
-
+  bno.setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P2);
+  bno.setAxisSign(Adafruit_BNO055::REMAP_SIGN_P2);
+  
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 //sd.remove("/!CONFIG/IMUCAL.DAT");           //uncomment this line to erase the IMU calibration data//
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
+  uint8_t system, gyro, accel, mag;
+  system = gyro = accel = mag = 0;
+  
   if(!sd.exists("/!CONFIG/IMUCAL.DAT")) {
     while(system < 3 || gyro < 3 || accel < 3 || mag < 3) {
       bno.getCalibration(&system, &gyro, &accel, &mag);
@@ -1033,7 +1036,7 @@ static void failBlink() {
 static bool readConfig () {
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
-  sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
+  //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   if (!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) {
     sd.mkdir("!CONFIG");
@@ -1069,7 +1072,7 @@ static bool readConfig () {
       logfile.print(F("BowOffset=0\n"));
       logfile.print(F("MagVariance=15\n"));
       logfile.print(F("HeelAngle=12\n"));
-      logfile.print(F("MenuScrollSpeed=100\n"));
+      logfile.print(F("MenuScrollSpeed=150\n"));
       logfile.print(F("TempUnits=f\n"));
       logfile.print(F("SpeedMAD=12\n"));
       logfile.print(F("WindUpdateRate=500\n"));
