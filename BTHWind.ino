@@ -1060,9 +1060,10 @@ static bool readConfig () {
       logfile.print(F("# HeelAngle: The angle at which you want to switch to displaying a digital heel angle (0 disables)\n"));
       logfile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
       logfile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
-      logfile.print(F("# SpeedMAD: Speed Moving Average Depth\n"));
+      logfile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the speed data)\n"));
       logfile.print(F("# WindUpdateRate: Delay between display updates for wind speed modes.\n"));
-      logfile.print(F("# DirectionFilter: range(.001 to 1)*1000; lower = more filtering; 1000=no filtering\n"));
+      logfile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
+      logfile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
       logfile.print(F("# Timezone: Timezone needed to properly timestamp files\n"));
       logfile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
       logfile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
@@ -1074,9 +1075,9 @@ static bool readConfig () {
       logfile.print(F("HeelAngle=12\n"));
       logfile.print(F("MenuScrollSpeed=150\n"));
       logfile.print(F("TempUnits=f\n"));
-      logfile.print(F("SpeedMAD=12\n"));
-      logfile.print(F("WindUpdateRate=500\n"));
-      logfile.print(F("DirectionFilter=250\n"));
+      logfile.print(F("SpeedMAD=12\n"));          
+      logfile.print(F("WindUpdateRate=500\n"));   //500 repaints the display at a 2Hz rate
+      logfile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
       logfile.print(F("Timezone=-8\n"));
       logfile.print(F("GPSUpdateRate=1000\n"));
       logfile.print(F("BaroRefAlt=374"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
