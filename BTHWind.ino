@@ -20,7 +20,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug             //comment this out to not depend on USB uart.
+//#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -240,7 +240,7 @@ void setup() {
     Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
  
     //power is adjustible from 5 to 23dBm
-    rf95.setTxPower(13, false);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
+    rf95.setTxPower(10, false);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
 ///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
@@ -392,13 +392,12 @@ void loop() {
   strip.setBrightness(map(w,0,37889,5,255));
   strip.show();
 
-  cout << "About to check heel " << millis() << endl;
   //Determine if we're over heeling
-  //if(millis() > compTimer + 100) { 
+  if(millis() > compTimer + 50) {   //only read compass and heel information every 50mS (20Hz)
     bno.getEvent(&compEvent);
     curHeelAngle = abs(compEvent.orientation.y);
     compTimer = millis();
-  //}
+  }
   if(curHeelAngle > heelAngle && heelAngle != 0 && curMode != Heel) {
     prevMode = curMode;
     firstEntry = true;   //this will ensure the display of "Reduce Heel" on entry of Heel state
@@ -561,7 +560,7 @@ void loop() {
 
         bno.getCalibration(&system, &gyro, &accel, &mag);
 
-        if(mag < 3)
+        if(mag < 1)
           displayString("CAL ");
         else {
           //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
