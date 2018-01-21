@@ -16,7 +16,6 @@
 
 //I2C Address Information (just to make sure there are no collisions)
 //BNO055 - 28h or 29h
-//LSM303 - 19h or 1Eh
 //APDS9960 - 39h
 //BMP280 - 77h
 //LED Backpack - 70h
@@ -240,7 +239,8 @@ void setup() {
     }
     Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
  
-    rf95.setTxPower(23, false);
+    //power is adjustible from 5 to 23dBm
+    rf95.setTxPower(13, false);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
 ///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
@@ -387,19 +387,18 @@ void loop() {
   static sensors_event_t compEvent;
   static uint8_t compTimer;
 
-  cout << "starting loop" << endl;
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
   strip.setBrightness(map(w,0,37889,5,255));
   strip.show();
 
-  cout << "About to check heel" << endl;
+  cout << "About to check heel " << millis() << endl;
   //Determine if we're over heeling
-  if(millis() > compTimer + 50) {
+  //if(millis() > compTimer + 100) { 
     bno.getEvent(&compEvent);
     curHeelAngle = abs(compEvent.orientation.y);
     compTimer = millis();
-  }
+  //}
   if(curHeelAngle > heelAngle && heelAngle != 0 && curMode != Heel) {
     prevMode = curMode;
     firstEntry = true;   //this will ensure the display of "Reduce Heel" on entry of Heel state
@@ -407,10 +406,9 @@ void loop() {
   }
   else if(curMode == Heel && curHeelAngle < heelAngle) {
     curMode = prevMode;   //return to previous mode
-    firstEntry = true;    //tell the user what mode they used to be in (not sure if I want to keep this)
+    //firstEntry = true;    //tell the user what mode they used to be in (not sure if I want to keep this)
   }
-
-  cout << "About to check gesture" << endl;
+  
   //use DIR_NEAR and DIR_FAR gestures to lock the menu
   if (apds.isGestureAvailable()) gesture = apds.readGesture();
   if (gesture == DIR_NEAR || locked)
@@ -429,7 +427,6 @@ void loop() {
     }
   }
 
-  cout << "Entering Switch" << endl;
   switch(curMode)
   {
     case AppWind:
@@ -564,7 +561,7 @@ void loop() {
 
         bno.getCalibration(&system, &gyro, &accel, &mag);
 
-        if(mag < 1)
+        if(mag < 3)
           displayString("CAL ");
         else {
           //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
@@ -678,61 +675,56 @@ void loop() {
         break;
   }
 
-  cout << "Exiting switch" << endl;
-
   if(Peet.available()) { 
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop (right here)
+  
+
+    if(wndSpd > 0 && curMode != TrueWind)
+        displayWindPixel(Peet.getDirection(), WHITE);
+    else if(wndSpd == 0)
+      restoreBackground();
+
+    static uint16_t i_log = 0;
+    static uint16_t speedBuf[60];      //size of this buffer is about how often the log file is updated (in seconds)
+    uint32_t accum = 0;
+    static uint32_t logTimer = 0;
+    uint16_t elements = sizeof(speedBuf)/sizeof(speedBuf[0]);
+    
+    //accumulate a pile of wind speeds then average them every so often and write that value out to the SD card
+    if(millis() > logTimer+1000) {
+      if(i_log < elements)
+      {
+        speedBuf[i_log] = wndSpd;
+        i_log++;
+      }
+      if(i_log == elements)
+      {
+        accum = 0;
+        for(int i = 0; i < elements; i++) {
+          accum += speedBuf[i];
+        }
+        accum /= elements;
+        if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
+            windStats.print(accum); windStats.print(','); windStats.println(Peet.getDirection());
+            blip(GREEN_LED_PIN,3,20);
+            newSDData = true;
+            #ifdef debug
+              cout << F("SD card average wind log entry written. Timestamp: ") << millis() << F(" Value: ") << accum << endl;
+            #endif
+        }
+        i_log = 0;
+      }
+      logTimer = millis();
+    }
+    
+    if(wndSpd > windMax) { windMax = wndSpd; }
   }
 
-  cout << "Updating Wind Dir Ring" << endl;
-  if(wndSpd > 0 && curMode != TrueWind)
-      displayWindPixel(Peet.getDirection(), WHITE);
-  else if(wndSpd == 0)
-    restoreBackground();
+    //Fetch all data from the GPS UART and feed it to the NeoGPS object
+    //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
+    while (Serial1.available()) { gps.handle(Serial1.read()); }
+  
 
-  static uint16_t i_log = 0;
-  static uint16_t speedBuf[60];      //size of this buffer is about how often the log file is updated (in seconds)
-  uint32_t accum = 0;
-  static uint32_t logTimer = 0;
-  uint16_t elements = sizeof(speedBuf)/sizeof(speedBuf[0]);
-  
-  cout << "Entering Stats Accumulation" << endl;
-  //accumulate a pile of wind speeds then average them every so often and write that value out to the SD card
-  if(millis() > logTimer+1000) {
-    if(i_log < elements)
-    {
-      speedBuf[i_log] = wndSpd;
-      i_log++;
-    }
-    if(i_log == elements)
-    {
-      accum = 0;
-      for(int i = 0; i < elements; i++) {
-        accum += speedBuf[i];
-      }
-      accum /= elements;
-      cout << "About to write to SD windstat logfile" << endl;
-      if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
-          windStats.print(accum); windStats.print(','); windStats.println(Peet.getDirection());
-          blip(GREEN_LED_PIN,3,20);
-          newSDData = true;
-          #ifdef debug
-            cout << F("SD card average wind log entry written. Timestamp: ") << millis() << F(" Value: ") << accum << endl;
-          #endif
-      }
-      i_log = 0;
-    }
-    logTimer = millis();
-  }
-  
-  cout << "Updating max wind speed" << endl;
-  if(wndSpd > windMax) { windMax = wndSpd; }
-  
-  //Fetch all data from the GPS UART and feed it to the NeoGPS object
-  //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
-  while (Serial1.available()) { gps.handle(Serial1.read()); }
-
-  cout << "About to handle radio traffic" << endl;
   //check for radio messages
   #ifdef LoRaRadioPresent 
     if (rf95.available())
@@ -753,12 +745,12 @@ void loop() {
           #endif
         }
         else {
-          //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+          cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
           strcpy((char*)data, "A");
           memcpy(&spd, &buf, 2);
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
-          //cout << spd << " " << dir << " " << battVoltage << endl;
+          cout << spd << " " << dir << " " << battVoltage << endl;
           Peet.ProcessWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit response
@@ -771,7 +763,7 @@ void loop() {
       }
     }
   #endif
-  cout << "loop complete" << endl;
+  
   //cout << F("Free Mem: ") << freeRam() << endl;
   
 }  //loop
@@ -787,37 +779,23 @@ float ftoc(float f) { return f-32*0.555556; }
 
 uint16_t getTWS(uint16_t AWA, uint16_t AWS, int16_t SOG)
 {
-  //cout << "AWA: " << AWA << " AWS: " << AWS << " SOG: " << SOG << endl;
   float _AWA = degToRad(AWA);
-  //cout << "degToRad AWA: " << _AWA << endl;
   float tanAlpha = sin(_AWA)/(float(AWS)/float(SOG)-cos(_AWA));
-  //cout << "sinAWA: " << sin(_AWA) << endl;
-  //cout << "cosAWA: " << cos(_AWA) << endl;
-  //cout << "AWS/SOG: " << float(AWS)/float(SOG) << endl;
-  //cout << "TanAlpha: " << tanAlpha << endl;
   float Alpha = atan(tanAlpha);
-  //cout << "Alpha: " << Alpha << endl;
   if(AWA == 0) {
-    //cout << "retVal: " << abs(round(AWS-SOG)) << endl;
     return(abs(round(AWS-SOG)));
   }
   else {
-    //cout << "retVal: " << round(SOG*(sin(_AWA)/sin(Alpha))) << endl;
     return(abs(round(SOG*(sin(_AWA)/sin(Alpha)))));
   }
 }
 
 uint16_t getTWA(uint16_t AWA, uint16_t AWS, int16_t SOG)
 {
-  //cout << "AWA: " << AWA << " AWS: " << AWS << " SOG: " << SOG << endl;
   float _AWA = degToRad(AWA);
-  //cout << "degToRad AWA: " << _AWA << endl;
   float tanAlpha = sin(_AWA)/(float(AWS)/float(SOG)-cos(_AWA));
-  //cout << "TanAlpha: " << tanAlpha << endl;
   float Alpha = atan(tanAlpha);
-  //cout << "Alpha: " << Alpha << endl;
   float tdiff = round(radToDeg(_AWA+Alpha));
-  //cout << "Tdiff: " << tdiff << endl;
   if(AWA == 0) {
     if(AWS >= SOG)
       return(0);
@@ -1090,7 +1068,7 @@ static bool readConfig () {
       logfile.print(F("HeelAngle=12\n"));
       logfile.print(F("MenuScrollSpeed=150\n"));
       logfile.print(F("TempUnits=f\n"));
-      logfile.print(F("SpeedMAD=12\n"));          
+      logfile.print(F("SpeedMAD=5\n"));          
       logfile.print(F("WindUpdateRate=500\n"));   //500 repaints the display at a 2Hz rate
       logfile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
       logfile.print(F("Timezone=-8\n"));
