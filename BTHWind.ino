@@ -20,7 +20,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
+#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -73,6 +73,8 @@
 #define GREEN_LED_PIN 8
 
 #define chipSelect 4
+
+#define GESTURE_INT A5
 
 #define RFM95_CS 9
 #define RFM95_RST 10
@@ -157,7 +159,7 @@ void setup() {
   strip.show(); // Initialize all pixels to 'off'
 
   alpha4.begin(0x70);  // pass in the address
-  scrollString("BTHWind", sizeof("BTHWind"), 200);
+  scrollString("BTHWind", sizeof("BTHWind"), 175);
   
 ///////////////////////////////////////Startup Barometric Sensor/////////////////////////////////////////////////////
   if (!baro.begin()) {
@@ -182,7 +184,7 @@ void setup() {
       Serial.println("Light sensor is borked.");
     #endif
   }
-  if ( apds.enableLightSensor(false) ) {  //no idea why this says false I'm just following the example and it works.
+  if ( apds.enableLightSensor(false) ) {     //false means no interrupt is configured for this mode
     #ifdef debug  
       Serial.println(F("Light sensor is now running"));
     #endif
@@ -201,7 +203,7 @@ void setup() {
       Serial.println(F("Something went wrong during gesture sensor init!"));
     #endif
   }
-  apds.setGestureGain(GGAIN_1X);
+  apds.setGestureGain(GGAIN_1X);      //seems odd but the lowest gain setting works best
 /////////////////////////////////////Setup GPS///////////////////////////////////////////////////////////////////////////
 
   if (gps.merging != NMEAGPS::EXPLICIT_MERGING)
@@ -364,6 +366,7 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ANEMOMETER_DIR_PIN), isrDirection, FALLING);
     tcConfigure(1000);  //1 second timer 
   #endif
+    attachInterrupt(digitalPinToInterrupt(GESTURE_INT),isrGesture, FALLING);
   
   uint16_t w;
   apds.readAmbientLight(w);
@@ -372,6 +375,7 @@ void setup() {
 }
 
 void displayIntFloat(int, char);  //compiler wants this and only this one for some reason.
+bool gestureSensed = false;
 
 void loop() {
   static Mode curMode = AppWind;
@@ -409,22 +413,25 @@ void loop() {
   }
   
   //use DIR_NEAR and DIR_FAR gestures to lock the menu
-  if (apds.isGestureAvailable()) gesture = apds.readGesture();
-  if (gesture == DIR_NEAR || locked)
-  {
-    if(!locked) {
-      scrollString("LOCKED", sizeof("LOCKED"), menuDelay);
-      locked = 1;
-    }
-    if(locked && gesture == DIR_FAR) {
-      scrollString("UNLOCKED", sizeof("UNLOCKED"), menuDelay);
-      locked = 0;
-    }
-    else if(locked)
+  if(gestureSensed) {
+    gestureSensed = false;
+    /*if (apds.isGestureAvailable())*/ gesture = apds.readGesture();
+    if (gesture == DIR_NEAR || locked)
     {
-      gesture = 0;  //make all gestures go away so they don't change menu status
+      if(!locked) {
+        scrollString("LOCKED", sizeof("LOCKED"), menuDelay);
+        locked = 1;
+      }
+      if(locked && gesture == DIR_FAR) {
+        scrollString("UNLOCKED", sizeof("UNLOCKED"), menuDelay);
+        locked = 0;
+      }
+      else if(locked)
+      {
+        gesture = 0;  //make all gestures go away so they don't change menu status
+      }
     }
-  }
+}
 
   switch(curMode)
   {
@@ -476,6 +483,7 @@ void loop() {
             windAvg=speedAccum/count;
           }
           windStats.close();
+          tempTimer = millis();
         }
         /////////////do WindStats
 
@@ -876,6 +884,7 @@ void scrollString(char *s, uint8_t size, uint16_t speed)
     if(i>1) alpha4.writeDigitAscii(1, s[i-2]);
     if(i>2) alpha4.writeDigitAscii(0, s[i-3]);
     alpha4.writeDisplay();
+    if(gestureSensed) return;  //this allows you to exit a mode while the menu scrolls
     delay(speed);
   }
   delay(speed*2);
@@ -945,6 +954,9 @@ void displayTemp(char units)
     TC5->COUNT16.INTFLAG.bit.MC0 = 1; //don't change this, it's part of the timer code
   }
 #endif
+void isrGesture () {
+  gestureSensed = true;
+}
 /////////////////////////////////////////////////////LED Ring Handling Functions////////////////////////////////////////////
 void animateRedGreenWipe(uint8_t wait) {
   //This is a background setting animation.
