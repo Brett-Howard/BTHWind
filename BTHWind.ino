@@ -184,7 +184,7 @@ void setup() {
       Serial.println("Light sensor is borked.");
     #endif
   }
-  if ( apds.enableLightSensor(false) ) {
+  if ( apds.enableLightSensor(false) ) {  //false means no interrupt is configured for this mode
     #ifdef debug  
       Serial.println(F("Light sensor is now running"));
     #endif
