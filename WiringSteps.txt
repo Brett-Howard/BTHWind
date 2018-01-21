@@ -16,3 +16,4 @@ Base Unit:
     Level translator from 3.3V to 5V on pin 11 to LED ring input pin
     RX/TX + PWR/GND for GPS module
     u.fl connector + antenna for LoRa module.
+    pullup resistor for APDS interrupt line and connected to A5

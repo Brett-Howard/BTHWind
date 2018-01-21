@@ -159,7 +159,7 @@ void setup() {
   strip.show(); // Initialize all pixels to 'off'
 
   alpha4.begin(0x70);  // pass in the address
-  scrollString("BTHWind", sizeof("BTHWind"), 200);
+  scrollString("BTHWind", sizeof("BTHWind"), 175);
   
 ///////////////////////////////////////Startup Barometric Sensor/////////////////////////////////////////////////////
   if (!baro.begin()) {
@@ -184,7 +184,7 @@ void setup() {
       Serial.println("Light sensor is borked.");
     #endif
   }
-  if ( apds.enableLightSensor(false) ) {  //false means no interrupt is configured for this mode
+  if ( apds.enableLightSensor(false) ) {     //false means no interrupt is configured for this mode
     #ifdef debug  
       Serial.println(F("Light sensor is now running"));
     #endif
@@ -375,15 +375,17 @@ void setup() {
 }
 
 void displayIntFloat(int, char);  //compiler wants this and only this one for some reason.
-  Mode curMode = AppWind;  //made global so that the isr can change current mode state.
-  bool firstEntry = true;
+bool gestureSensed = false;
 
 void loop() {
+  static Mode curMode = AppWind;
   static Mode prevMode;
+  uint8_t gesture; 
   static uint16_t w,wndSpd,windAvg,windMax = 0;
-  
+  static bool firstEntry = 1;
   static int curHeelAngle;
   static uint32_t tempTimer;
+  static bool locked = false;
   static bool newSDData = false;
   static uint16_t battVoltage;
   static sensors_event_t compEvent;
@@ -409,6 +411,27 @@ void loop() {
     curMode = prevMode;   //return to previous mode
     //firstEntry = true;    //tell the user what mode they used to be in (not sure if I want to keep this)
   }
+  
+  //use DIR_NEAR and DIR_FAR gestures to lock the menu
+  if(gestureSensed) {
+    gestureSensed = false;
+    /*if (apds.isGestureAvailable())*/ gesture = apds.readGesture();
+    if (gesture == DIR_NEAR || locked)
+    {
+      if(!locked) {
+        scrollString("LOCKED", sizeof("LOCKED"), menuDelay);
+        locked = 1;
+      }
+      if(locked && gesture == DIR_FAR) {
+        scrollString("UNLOCKED", sizeof("UNLOCKED"), menuDelay);
+        locked = 0;
+      }
+      else if(locked)
+      {
+        gesture = 0;  //make all gestures go away so they don't change menu status
+      }
+    }
+}
 
   switch(curMode)
   {
@@ -428,6 +451,11 @@ void loop() {
         #ifdef noisyDebug
           cout << "AWS: "  << wndSpd << " AWA: " << Peet.getDirection() << endl;
         #endif
+        //////Transition state
+        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
+        else if(gesture == DIR_UP) { curMode = TrueWind; firstEntry = true; }
+        else if(gesture == DIR_DOWN) { curMode = WindStats; firstEntry = true; }
         break;
     
     
@@ -474,6 +502,12 @@ void loop() {
         }
         if(millis() > tempTimer+4000)
           tempTimer = millis();
+
+        ////////////Transition State
+        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
+        else if(gesture == DIR_UP) { curMode = AppWind; firstEntry = true; }
+        else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
         break;
     
     
@@ -512,6 +546,12 @@ void loop() {
           #endif
           tempTimer = millis();
         }   
+        
+        //////////////Transition State
+        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
+        else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
+        else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
         break;
     
     
@@ -536,6 +576,11 @@ void loop() {
           heading = compEvent.orientation.x;
           displayAngle(heading, 'M');
         }
+
+        ///////////Transition State
+        if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = COG; firstEntry = true; }
         break; 
     
     
@@ -550,6 +595,10 @@ void loop() {
         if (globalFix.valid.speed) {
           displayAngle(uint16_t(globalFix.heading()), 'T');
         }
+        //////////////////Transition State
+        if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = CompHead; firstEntry = true; }
         break; 
     
     
@@ -564,6 +613,11 @@ void loop() {
         if (globalFix.valid.speed) {
           displayIntFloat(globalFix.speed()*100, '\0');
         }
+
+        //////////////////Transition State
+        if(gesture == DIR_LEFT) { curMode = CompHead; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = MastBatt; firstEntry = true; }
+        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = SOG; firstEntry = true; }
         break;
     
     
@@ -577,6 +631,10 @@ void loop() {
           displayBaro();
           tempTimer = millis(); 
         } 
+        ////////////////Transition State
+        if(gesture == DIR_LEFT) { curMode = Temp; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = AppWind; firstEntry = true; }
+        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Baro; firstEntry = true; }
         break;
     
     
@@ -591,6 +649,10 @@ void loop() {
           displayTemp(tempUnits); 
           tempTimer = millis(); 
         } 
+        ///////////////Transition State
+        if(gesture == DIR_LEFT) { curMode = MastBatt; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = Baro; firstEntry = true; }
+        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Temp; firstEntry = true; }
         break;
     
     case MastBatt:
@@ -600,9 +662,11 @@ void loop() {
         }
         ///////////////Do MastBatt
         displayIntFloat(battVoltage, 'V');
+        ///////////////Transition State
+        if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
+        else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
+        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
         break;
-    
-    
     case Heel:
         if(firstEntry) {
           scrollString("Reduce Heel", sizeof("Reduce Heel"), menuDelay/2);
@@ -820,6 +884,7 @@ void scrollString(char *s, uint8_t size, uint16_t speed)
     if(i>1) alpha4.writeDigitAscii(1, s[i-2]);
     if(i>2) alpha4.writeDigitAscii(0, s[i-3]);
     alpha4.writeDisplay();
+    if(gestureSensed) return;  //this allows you to exit a mode while the menu scrolls
     delay(speed);
   }
   delay(speed*2);
@@ -890,82 +955,7 @@ void displayTemp(char units)
   }
 #endif
 void isrGesture () {
-  uint8_t gesture = 0; 
-  static bool locked = false;
-
-  cout << "got to gesture isr" << endl;
-  //use DIR_NEAR and DIR_FAR gestures to lock the menu
-  if (apds.isGestureAvailable()) gesture = apds.readGesture();
-  cout << "read gesture sensor" << endl;
-  if (gesture == DIR_NEAR || locked)
-  {
-    if(!locked) {
-      scrollString("LOCKED", sizeof("LOCKED"), menuDelay);
-      locked = 1;
-    }
-    if(locked && gesture == DIR_FAR) {
-      scrollString("UNLOCKED", sizeof("UNLOCKED"), menuDelay);
-      locked = 0;
-    }
-    else if(locked)
-    {
-      gesture = 0;  //make all gestures go away so they don't change menu status
-    }
-  }
-
-  switch(curMode)
-  {
-    case AppWind:
-        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_UP) { curMode = TrueWind; firstEntry = true; }
-        else if(gesture == DIR_DOWN) { curMode = WindStats; firstEntry = true; }
-        break;
-    case WindStats:
-        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_UP) { curMode = AppWind; firstEntry = true; }
-        else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
-        break;
-    case TrueWind:
-        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
-        else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
-        break;
-    case CompHead:
-        if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = COG; firstEntry = true; }
-        break; 
-    case COG:
-        if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = CompHead; firstEntry = true; }
-        break; 
-    case SOG:
-        if(gesture == DIR_LEFT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = MastBatt; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = SOG; firstEntry = true; }
-        break;
-    case Baro:
-        if(gesture == DIR_LEFT) { curMode = Temp; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = AppWind; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Baro; firstEntry = true; }
-        break;
-    case Temp:
-        if(gesture == DIR_LEFT) { curMode = MastBatt; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = Baro; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Temp; firstEntry = true; }
-        break;
-    case MastBatt:
-        if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
-        break;
-    case Heel:
-        break;
-  }
+  gestureSensed = true;
 }
 /////////////////////////////////////////////////////LED Ring Handling Functions////////////////////////////////////////////
 void animateRedGreenWipe(uint8_t wait) {
