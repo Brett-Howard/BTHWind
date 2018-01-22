@@ -8,7 +8,8 @@
 #include <Adafruit_BMP280.h>            //support for barometric pressure sensor
 #include <Adafruit_GFX.h>               //Font support for 14-seg LEDs
 #include <Adafruit_LEDBackpack.h>       //Support for 14-seg LEDs
-#include <SparkFun_APDS9960.h>          //Sparkfun APDS9960 Ambient Light/Gesutre Sensor library (which actually works)
+#include "SparkFun_APDS9960.h"          //Sparkfun APDS9960 Ambient Light/Gesutre Sensor library (which actually works)
+                                        //using a local copy to allow for shortening the gesutre delay
 #include <NMEAGPS.h>                    //GPS Support
 #include <GPSport.h>                    //GPS Support
 #include <RH_RF95.h>                    //LoRa Radio support
@@ -72,7 +73,7 @@
 #define RED_LED_PIN 13
 #define GREEN_LED_PIN 8
 
-#define chipSelect 4
+#define SD_CHIP_SEL 4
 
 #define GESTURE_INT A5
 
@@ -221,7 +222,7 @@ void setup() {
   gps.send_P( &gpsPort, F("PGCMD,33,0") );  //turn off antenna nuisance data
   gps.send_P( &gpsPort, F("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC & GGA  (need GGA for Altitude, Sat Count and Hdop)
   char tmp[13];
-  sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
+  sprintf(tmp, "PMTK220,%d\0", 5000);
   gps.send( &gpsPort, tmp ); //set fix update rate
   SdFile::dateTimeCallback(dateTime);  //register date time callback for file system
 
@@ -430,7 +431,6 @@ void loop() {
       if(!locked) {
         scrollString("LOCKED", sizeof("LOCKED"), menuDelay);
         locked = 1;
-        logfile.close();
       }
       if(locked && gesture == DIR_FAR) {
         scrollString("UNLOCKED", sizeof("UNLOCKED"), menuDelay);
@@ -498,7 +498,7 @@ void loop() {
         /////////////do WindStats
 
         //show the values on the display
-        if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying (should change the gestures to interrupt driven)
+        if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
           displayString("AVG ");
         }
         if(millis() > tempTimer+1000 && millis() < tempTimer+2000) {
@@ -775,12 +775,12 @@ void loop() {
           #endif
         }
         else {
-          cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+          //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
           strcpy((char*)data, "A");
           memcpy(&spd, &buf, 2);
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
-          cout << spd << " " << dir << " " << battVoltage << endl;
+          //cout << spd << " " << dir << " " << battVoltage << endl;
           Peet.ProcessWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit response
@@ -852,22 +852,22 @@ void displaySensorOffsets(const adafruit_bno055_offsets_t &calibData)
     Serial.print("Accelerometer: ");
     Serial.print(calibData.accel_offset_x); Serial.print(" ");
     Serial.print(calibData.accel_offset_y); Serial.print(" ");
-    Serial.print(calibData.accel_offset_z); Serial.print(" ");
+    Serial.println(calibData.accel_offset_z);
 
-    Serial.print("\nGyro: ");
+    Serial.print("Gyro: ");
     Serial.print(calibData.gyro_offset_x); Serial.print(" ");
     Serial.print(calibData.gyro_offset_y); Serial.print(" ");
-    Serial.print(calibData.gyro_offset_z); Serial.print(" ");
+    Serial.println(calibData.gyro_offset_z);
 
-    Serial.print("\nMag: ");
+    Serial.print("Mag: ");
     Serial.print(calibData.mag_offset_x); Serial.print(" ");
     Serial.print(calibData.mag_offset_y); Serial.print(" ");
-    Serial.print(calibData.mag_offset_z); Serial.print(" ");
+    Serial.println(calibData.mag_offset_z); 
 
-    Serial.print("\nAccel Radius: ");
-    Serial.print(calibData.accel_radius);
+    Serial.print("Accel Radius: ");
+    Serial.println(calibData.accel_radius);
 
-    Serial.print("\nMag Radius: ");
+    Serial.print("Mag Radius: ");
     Serial.println(calibData.mag_radius);
 }
 
@@ -954,7 +954,7 @@ void displayBaro()
     }
   }
   else
-    displayIntFloat( round( baro.readPressure()*pow((1-(0.0019812*baroRefAlt)/(baro.readTemperature()+0.0019812*baroRefAlt+273.15)),-5.257)*0.0295301 ) );
+    displayIntFloat(round( baro.readPressure()*pow((1-(0.0019812*baroRefAlt)/(baro.readTemperature()+0.0019812*baroRefAlt+273.15)),-5.257)*0.0295301 ) );
 }
 
 void displayTemp(char units)
@@ -978,6 +978,10 @@ void displayTemp(char units)
   }
 #endif
 void isrGesture () {
+  #ifdef debug
+    cout << "got gesture" << endl;
+    Serial.println(sd.card()->errorCode(), HEX);
+  #endif
   gestureSensed = true;
 }
 /////////////////////////////////////////////////////LED Ring Handling Functions////////////////////////////////////////////
@@ -1073,6 +1077,7 @@ static bool readConfig () {
       #ifdef debug
         Serial.println(F("Couldn't open new config file"));
       #endif
+      failBlink();
       return 0;
     }
     else {
@@ -1111,7 +1116,7 @@ static bool readConfig () {
       logfile.close();
       blip(GREEN_LED_PIN, 5, 200);
     }
-    if(!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) { Serial.println(F("Failed to open the newly created config")); }  //open the new file to read in the vals
+    if(!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) { Serial.println(F("Failed to open the newly created config")); failBlink(); }  //open the new file to read in the vals
   }
 
   //Fetch Configuration Values
@@ -1145,7 +1150,7 @@ bool initSD() {
   #endif
   
   // see if the card is present and can be initialized:
-  if (!sd.begin(chipSelect)) {
+  if (!sd.begin(SD_CHIP_SEL, SD_SCK_MHZ(50))) {
     #ifdef debug
       Serial.println( F("SD card failed, or not present") );
     #endif
@@ -1169,6 +1174,7 @@ void dateTime(uint16_t* date, uint16_t* time) {
   
 }
 
+//these read functions should be cleaned up later
 int csvReadText(SdFile* file, char* str, size_t size, char delim) {
   char ch;
   int rtn;
@@ -1343,7 +1349,8 @@ void startLogFile()
     getLocalTime(localHour, localDay); 
     
     //for some reason if these two sprintf's are swapped in order it zero's out localHour.  No idea why
-    sprintf(filename, "/%02d-%02d-%02d/%02d-%02d%s", globalFix.dateTime.year, globalFix.dateTime.month, localDay, localHour, globalFix.dateTime.minutes, ".GPX");
+    sprintf(filename, "/%02d-%02d-%02d/%02d-%02d%s", globalFix.dateTime.year, globalFix.dateTime.month, localDay, 
+            localHour, globalFix.dateTime.minutes, ".GPX");
     sprintf(directory, "/%02d-%02d-%02d", globalFix.dateTime.year, globalFix.dateTime.month, localDay); 
     
     sd.mkdir(directory);
@@ -1358,7 +1365,7 @@ void startLogFile()
     #endif
   }
 
-  if(!logfile.open(filename, O_CREAT | O_WRITE | O_TRUNC)) {  //trunc should mean if you create a file again in the same minute as an aready existing file just start it over
+  if(!logfile.open(filename, O_CREAT | O_WRITE | O_TRUNC)) {  //Delete the previous and start a new file if its been less than 1 min.
     #ifdef debug
       Serial.print( F("Couldn't create ") );
       Serial.println(filename);
@@ -1383,72 +1390,78 @@ void startLogFile()
 
 static void WriteGPXLog()
 { 
-    // Log the fix information if we have a location and time
-    cout << "got to write log" << endl;
-    if (globalFix.valid.location && globalFix.valid.time) {
-      char date1[22];
-      sprintf(date1, "%4d-%02d-%02dT%02d:%02d:%02dZ", globalFix.dateTime.full_year(), globalFix.dateTime.month, globalFix.dateTime.date, globalFix.dateTime.hours, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
-      if(logfile.open(filename, O_WRITE)) {
-        logfile.seekSet(logfile.fileSize() - 28);
-        logfile.print(F("\t\t<trkpt lat=\""));
+  // Log the fix information if we have a location and time
+  cout << "got to write log" << endl;
+  if (globalFix.valid.location && globalFix.valid.time) {
+    char date1[22];
+    sprintf(date1, "%4d-%02d-%02dT%02d:%02d:%02dZ", globalFix.dateTime.full_year(), globalFix.dateTime.month, 
+            globalFix.dateTime.date, globalFix.dateTime.hours, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
+    cout << "about to open file" << endl;
+    while(!logfile.isOpen())
+      logfile.open(filename, O_WRITE);
+    //if(logfile.open(filename, O_WRITE) || logfile.isOpen()) {
+      cout << "about to seek logfile" << endl;
+      while(!logfile.seekSet(logfile.fileSize() - 28))
+      logfile.print(F("\t\t<trkpt lat=\""));
 
-        cout << "date and time calculated" << endl;
+      cout << "date and time calculated" << endl;
 
-        if (globalFix.valid.location) {
-          logfile.print(globalFix.latitude(), 7);
-          logfile.print(F("\" lon=\""));
-          logfile.print(globalFix.longitude(), 7);
-          logfile.print(F("\">\n"));
-        }
-  
-        cout << "location written" << endl;
-
-        /*if (globalFix.valid.altitude) {
-          logfile.print(F("\t\t\t<ele>"));
-          logfile.print(globalFix.altitude(), 2);
-          logfile.println(F("</ele>"));
-        }*/
-  
-        if (globalFix.valid.time) {
-          logfile.print(F("\t\t\t<time>"));
-          logfile.print(date1);
-          logfile.print(F("</time>\n"));
-        }
-
-        cout << "time written" << endl;
-  
-        if (globalFix.valid.speed) {
-          logfile.print(F("\t\t\t<speed>"));
-          logfile.print(globalFix.speed());
-          logfile.print(F("</speed>\n"));
-        }
-
-        cout << "speed written" << endl;
-
-        /*if (globalFix.valid.hdop) {
-          logfile.print(F("\t\t\t<hdop>"));
-          logfile.print(float(globalFix.hdop)/float(1000), 3);
-          logfile.print(F("</hdop>\n"));
-        }*/
-  
-        /*if (globalFix.valid.heading) {
-          logfile.print(F("\t\t\t<course>"));
-          logfile.print(globalFix.heading());
-          logfile.println(F("</course>"));
-        }*/
-  
-        /*logfile.print(F("\t\t\t<sat>"));
-        logfile.print(globalFix.satellites);
-        logfile.println(F("</sat>"));*/
-  
-        logfile.print(F("\t\t</trkpt>\n"));
-  
-        //replace closing tags
-        logfile.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
-
-        //cout << "about to close file" << endl;
-        //logfile.close();
-        //cout << "file closed" << endl;
+      if (globalFix.valid.location) {
+        logfile.print(globalFix.latitude(), 7);
+        logfile.print(F("\" lon=\""));
+        logfile.print(globalFix.longitude(), 7);
+        logfile.print(F("\">\n"));
       }
+
+      cout << "location written" << endl;
+
+      if (globalFix.valid.altitude) {
+        logfile.print(F("\t\t\t<ele>"));
+        logfile.print(globalFix.altitude(), 2);
+        logfile.println(F("</ele>"));
+      }
+
+      if (globalFix.valid.time) {
+        logfile.print(F("\t\t\t<time>"));
+        logfile.print(date1);
+        logfile.print(F("</time>\n"));
+      }
+
+      cout << "time written" << endl;
+
+      if (globalFix.valid.speed) {
+        logfile.print(F("\t\t\t<speed>"));
+        logfile.print(globalFix.speed());
+        logfile.print(F("</speed>\n"));
+      }
+
+      cout << "speed written" << endl;
+
+      if (globalFix.valid.hdop) {
+        logfile.print(F("\t\t\t<hdop>"));
+        logfile.print(float(globalFix.hdop)/float(1000), 3);
+        logfile.print(F("</hdop>\n"));
+      }
+
+      if (globalFix.valid.heading) {
+        logfile.print(F("\t\t\t<course>"));
+        logfile.print(globalFix.heading());
+        logfile.println(F("</course>"));
+      }
+
+      logfile.print(F("\t\t\t<sat>"));
+      logfile.print(globalFix.satellites);
+      logfile.println(F("</sat>"));
+
+      logfile.print(F("\t\t</trkpt>\n"));
+
+      //replace closing tags
+      logfile.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
+
+      cout << "about to close file" << endl;
+      //while(!logfile.close());
+      blip(RED_LED_PIN, 1, 20);
+      cout << "file closed" << endl;
+    //}
     }
   }
