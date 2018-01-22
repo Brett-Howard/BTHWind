@@ -106,6 +106,7 @@ SDConfigFile cfg;
 SdFile logfile;
 SdFile windStats;
 SdFile compCal;
+SdFile gpsLog;
 
 ArduinoOutStream cout(Serial);
 
@@ -221,9 +222,6 @@ void setup() {
 
   gps.send_P( &gpsPort, F("PGCMD,33,0") );  //turn off antenna nuisance data
   gps.send_P( &gpsPort, F("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC & GGA  (need GGA for Altitude, Sat Count and Hdop)
-  char tmp[13];
-  sprintf(tmp, "PMTK220,%d\0", 5000);
-  gps.send( &gpsPort, tmp ); //set fix update rate
   SdFile::dateTimeCallback(dateTime);  //register date time callback for file system
 
   waitForFix();
@@ -268,7 +266,7 @@ void setup() {
     failBlink();
   }
   #ifdef debug
-    cout << "BNO055 Compass Initialized" << endl;
+    cout << "BNO055 IMU Initialized" << endl;
   #endif
 
   bno.setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P2);
@@ -363,6 +361,12 @@ void setup() {
 	  Serial.println(F("SD card configuration read successfully"));
 	#endif
 
+  //write update rate into the GPS  (has to be moved here after we've fetched the value from the config)
+  char tmp[13];
+  sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
+  gps.send( &gpsPort, tmp ); //set fix update rate
+  
+
   sd.remove("WINDSTAT.LOG");  //delete prior log file
  
 //////////////Setup and configure the anemometer object and link up the necessary interrupts
@@ -401,10 +405,7 @@ void loop() {
   static uint8_t compTimer;
   static bool GPXLogStarted = false;
   
-  //adjust wind ring brightness based on ambient light
-  apds.readAmbientLight(w);
-  strip.setBrightness(map(w,0,37889,5,255));
-  strip.show();
+  
 
   //Determine if we're over heeling
   if(millis() > compTimer + 50) {   //only read compass and heel information every 50mS (20Hz)
@@ -737,6 +738,9 @@ void loop() {
     if(wndSpd > windMax) { windMax = wndSpd; }
   }
 
+  static bool GPXLogWasJustWritten = false;
+  uint16_t GPXTimer;
+
   //Fetch all data from the GPS UART and feed it to the NeoGPS object
   //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
   while (Serial1.available()) { gps.handle(Serial1.read()); }
@@ -749,50 +753,63 @@ void loop() {
       GPXLogStarted = true;
     }
     else if(GPXLogging) {
-      cout << "starting GPX Log" << endl;
       WriteGPXLog();
-      cout << "finished log entry" << endl;
+      GPXLogWasJustWritten = true;
+      GPXTimer = millis();
+      cout << "writing log @" << millis() << endl;
     }
   }
+
+  //It seems there is a race condition between the SdFat library writing the GPX data
+  //and the RadioHead library talking to the LoRa module.  Just putting a delay here 
+  //really makes the loop sluggish so I'm putting this workaround in to only delay if
+  //the file was just written and to do so in a non blocking way.
+
+  //if the log file was just written delay 300mS
+  if(!GPXLogWasJustWritten || (GPXLogWasJustWritten && (millis() > GPXTimer + 300))) {  
+    if(GPXLogWasJustWritten && (millis() > GPXTimer + 300))
+      GPXLogWasJustWritten = false;
         
-  //check for radio messages
-  #ifdef LoRaRadioPresent 
-    if (rf95.available())
-    {
-      uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
-      uint8_t len = sizeof(buf);
-      uint8_t data[RH_RF95_MAX_MESSAGE_LEN];
-
-      if (rf95.recv(buf, &len))
+    //check for radio messages
+    cout << "Checking radio @" << millis() << endl;
+    #ifdef LoRaRadioPresent 
+      if (rf95.available())
       {
-        uint16_t spd;
-        int16_t dir;
+        uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
+        uint8_t len = sizeof(buf);
+        uint8_t data[RH_RF95_MAX_MESSAGE_LEN];
 
-        if(stricmp((char*)buf,"McFly") == 0) {
-          strcpy((char*)data, "HiBiff");
-          #ifdef debug
-            cout << "Got McFly?...  Sending \"HiBiff\"" << endl;
-          #endif
+        if (rf95.recv(buf, &len))
+        {
+          uint16_t spd;
+          int16_t dir;
+
+          if(stricmp((char*)buf,"McFly") == 0) {
+            strcpy((char*)data, "HiBiff");
+            #ifdef debug
+              cout << "Got McFly?...  Sending \"HiBiff\"" << endl;
+            #endif
+          }
+          else {
+            //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+            strcpy((char*)data, "A");
+            memcpy(&spd, &buf, 2);
+            memcpy(&dir, &buf[2], 2);
+            memcpy(&battVoltage, &buf[4], 2);
+            //cout << spd << " " << dir << " " << battVoltage << endl;
+            Peet.ProcessWirelessData(spd, dir);
+          }
+          rf95.send(data, sizeof(data));  //transmit response
+          //rf95.waitPacketSent();
         }
         else {
-          //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
-          strcpy((char*)data, "A");
-          memcpy(&spd, &buf, 2);
-          memcpy(&dir, &buf[2], 2);
-          memcpy(&battVoltage, &buf[4], 2);
-          //cout << spd << " " << dir << " " << battVoltage << endl;
-          Peet.ProcessWirelessData(spd, dir);
+          #ifdef debug
+            cout << "Receive failed" << endl;
+          #endif
         }
-        rf95.send(data, sizeof(data));  //transmit response
-        //rf95.waitPacketSent();
       }
-      else {
-        #ifdef debug
-          cout << "Receive failed" << endl;
-        #endif
-      }
-    }
-  #endif
+    #endif
+  }
   
   //cout << F("Free Mem: ") << freeRam() << endl;
   
@@ -939,16 +956,13 @@ void displayIntFloat(int val, char lastChar = '\0')  //displays 2 digits of prec
 
 void displayBaro()
 {
-  if(baroRefAlt == 0) 
-    displayIntFloat(round(baro.readPressure()*0.0295301));
-  else if(baroRefAlt == -1) {
+  if(baroRefAlt == -1) {
     //first wait until new GPS data available. 
     //This should probably be done less often but meh what if someone wants it to update regularly....?
-    if(gps.available());
+    if(globalFix.valid.altitude)
     {
-      globalFix = gps.read();
       float alt = globalFix.altitude();
-      
+
       //constants slightly different because GPS altitude is in meters
       displayIntFloat( round( baro.readPressure()*pow((1-(0.0065*alt)/(baro.readTemperature()+0.0065*alt+273.15)),-5.257)*0.0295301 ) );
     }
@@ -1150,7 +1164,7 @@ bool initSD() {
   #endif
   
   // see if the card is present and can be initialized:
-  if (!sd.begin(SD_CHIP_SEL, SD_SCK_MHZ(50))) {
+  if (!sd.begin(SD_CHIP_SEL, SD_SCK_MHZ(25))) {
     #ifdef debug
       Serial.println( F("SD card failed, or not present") );
     #endif
@@ -1365,7 +1379,7 @@ void startLogFile()
     #endif
   }
 
-  if(!logfile.open(filename, O_CREAT | O_WRITE | O_TRUNC)) {  //Delete the previous and start a new file if its been less than 1 min.
+  if(!gpsLog.open(filename, O_CREAT | O_WRITE | O_TRUNC)) {  //Delete the previous and start a new file if its been less than 1 min.
     #ifdef debug
       Serial.print( F("Couldn't create ") );
       Serial.println(filename);
@@ -1378,90 +1392,78 @@ void startLogFile()
     Serial.println(filename);
   #endif
   
-  logfile.print(F(
+  gpsLog.print(F(
                   "<?xml version=\"1.0\" encoding=\"ISO-8859-1\" standalone=\"yes\"?>\r\n"
                   "<gpx version=\"1.1\" creator=\"BTHGPSLogger\" xmlns=\"http://www.topografix.com/GPX/1/1\" \r\n"
                   "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\r\n"
                   "xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\r\n"
-                  "<trk>\r\n\t<name>")); logfile.print(trackName); logfile.print(F("</name>\r\n\t<trkseg>\r\n"));  //heading of gpx file
-  logfile.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
-  logfile.close();
-} // startLogFile
+                  "<trk>\r\n\t<name>")); gpsLog.print(trackName); gpsLog.print(F("</name>\r\n\t<trkseg>\r\n"));  //heading of gpx file
+  gpsLog.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
+  gpsLog.close();
+} // startgpsLog
 
 static void WriteGPXLog()
 { 
   // Log the fix information if we have a location and time
-  cout << "got to write log" << endl;
   if (globalFix.valid.location && globalFix.valid.time) {
     char date1[22];
-    sprintf(date1, "%4d-%02d-%02dT%02d:%02d:%02dZ", globalFix.dateTime.full_year(), globalFix.dateTime.month, 
+    snprintf(date1, 22, "%4d-%02d-%02dT%02d:%02d:%02dZ", globalFix.dateTime.full_year(), globalFix.dateTime.month, 
             globalFix.dateTime.date, globalFix.dateTime.hours, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
-    cout << "about to open file" << endl;
-    while(!logfile.isOpen())
-      logfile.open(filename, O_WRITE);
-    //if(logfile.open(filename, O_WRITE) || logfile.isOpen()) {
-      cout << "about to seek logfile" << endl;
-      while(!logfile.seekSet(logfile.fileSize() - 28))
-      logfile.print(F("\t\t<trkpt lat=\""));
+    
+    if(!gpsLog.isOpen())
+      gpsLog.open(filename, O_WRITE);
+      
+    delay(150);
+    gpsLog.seekSet(gpsLog.fileSize() - 28);
+    gpsLog.print(F("\t\t<trkpt lat=\""));
 
-      cout << "date and time calculated" << endl;
-
-      if (globalFix.valid.location) {
-        logfile.print(globalFix.latitude(), 7);
-        logfile.print(F("\" lon=\""));
-        logfile.print(globalFix.longitude(), 7);
-        logfile.print(F("\">\n"));
-      }
-
-      cout << "location written" << endl;
-
-      if (globalFix.valid.altitude) {
-        logfile.print(F("\t\t\t<ele>"));
-        logfile.print(globalFix.altitude(), 2);
-        logfile.println(F("</ele>"));
-      }
-
-      if (globalFix.valid.time) {
-        logfile.print(F("\t\t\t<time>"));
-        logfile.print(date1);
-        logfile.print(F("</time>\n"));
-      }
-
-      cout << "time written" << endl;
-
-      if (globalFix.valid.speed) {
-        logfile.print(F("\t\t\t<speed>"));
-        logfile.print(globalFix.speed());
-        logfile.print(F("</speed>\n"));
-      }
-
-      cout << "speed written" << endl;
-
-      if (globalFix.valid.hdop) {
-        logfile.print(F("\t\t\t<hdop>"));
-        logfile.print(float(globalFix.hdop)/float(1000), 3);
-        logfile.print(F("</hdop>\n"));
-      }
-
-      if (globalFix.valid.heading) {
-        logfile.print(F("\t\t\t<course>"));
-        logfile.print(globalFix.heading());
-        logfile.println(F("</course>"));
-      }
-
-      logfile.print(F("\t\t\t<sat>"));
-      logfile.print(globalFix.satellites);
-      logfile.println(F("</sat>"));
-
-      logfile.print(F("\t\t</trkpt>\n"));
-
-      //replace closing tags
-      logfile.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
-
-      cout << "about to close file" << endl;
-      //while(!logfile.close());
-      blip(RED_LED_PIN, 1, 20);
-      cout << "file closed" << endl;
-    //}
+    if (globalFix.valid.location) {
+      gpsLog.print(globalFix.latitude(), 7);
+      gpsLog.print(F("\" lon=\""));
+      gpsLog.print(globalFix.longitude(), 7);
+      gpsLog.print(F("\">\n"));
     }
+
+    if (globalFix.valid.altitude) {
+      gpsLog.print(F("\t\t\t<ele>"));
+      gpsLog.print(globalFix.altitude(), 2);
+      gpsLog.println(F("</ele>"));
+    }
+
+    if (globalFix.valid.time) {
+      gpsLog.print(F("\t\t\t<time>"));
+      gpsLog.print(date1);
+      gpsLog.print(F("</time>\n"));
+    }
+
+    if (globalFix.valid.speed) {
+      gpsLog.print(F("\t\t\t<speed>"));
+      gpsLog.print(globalFix.speed());
+      gpsLog.print(F("</speed>\n"));
+    }
+
+    if (globalFix.valid.hdop) {
+      gpsLog.print(F("\t\t\t<hdop>"));
+      gpsLog.print(float(globalFix.hdop)/float(1000), 3);
+      gpsLog.print(F("</hdop>\n"));
+    }
+
+    if (globalFix.valid.heading) {
+      gpsLog.print(F("\t\t\t<course>"));
+      gpsLog.print(globalFix.heading());
+      gpsLog.println(F("</course>"));
+    }
+
+    gpsLog.print(F("\t\t\t<sat>"));
+    gpsLog.print(globalFix.satellites);
+    gpsLog.println(F("</sat>"));
+
+    gpsLog.print(F("\t\t</trkpt>\n"));
+
+    //replace closing tags
+    gpsLog.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
+
+    gpsLog.close();
+    blip(RED_LED_PIN, 1, 20);
   }
+}
