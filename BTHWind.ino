@@ -8,7 +8,7 @@
 #include <Adafruit_BMP280.h>            //support for barometric pressure sensor
 #include <Adafruit_GFX.h>               //Font support for 14-seg LEDs
 #include <Adafruit_LEDBackpack.h>       //Support for 14-seg LEDs
-#include <SparkFun_APDS9960.h>          //Sparkfun APDS9960 Ambient Light/Gesutre Sensor library (which actually works)
+#include "SparkFun_APDS9960.h"          //Sparkfun APDS9960 Ambient Light/Gesutre Sensor library (which actually works)
 #include <NMEAGPS.h>                    //GPS Support
 #include <GPSport.h>                    //GPS Support
 #include <RH_RF95.h>                    //LoRa Radio support
@@ -212,14 +212,13 @@ void setup() {
   gpsPort.begin( 9600 );
 
   gps.send_P( &gpsPort, F("PGCMD,33,0") );  //turn off antenna nuisance data
-  if(baroRefAlt == -1)
-    gps.send_P( &gpsPort, F("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC & GGA (because GGA contains Altitude)
-  else
-    gps.send_P( &gpsPort, F("PMTK314,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC only to reduce serial traffic and speed up the polling loop
+  gps.send_P( &gpsPort, F("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC & GGA (because GGA contains Altitude)
   char tmp[13];
   sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
   gps.send( &gpsPort, tmp ); //set fix update rate
   SdFile::dateTimeCallback(dateTime);  //register date time callback for file system
+
+  waitForFix();
 
 //////////////////////////////////////////////////////Setup LoRa Radio//////////////////////////////////////////////////////
   #ifdef LoRaRadioPresent
@@ -248,7 +247,8 @@ void setup() {
 ///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
   if(initSD()) {
     Serial.print(F("Card size: ")); Serial.print(sd.card()->cardSize() * 0.000512 + 0.5); Serial.println(" MiB");
-    Serial.print(F("Card free: ")); Serial.print(sd.vol()->freeClusterCount() * .000512 * sd.vol()->blocksPerCluster()); Serial.println(" MiB");
+    //removing card free because it takes a while on a 16GB card.
+    //Serial.print(F("Card free: ")); Serial.print(sd.vol()->freeClusterCount() * .000512 * sd.vol()->blocksPerCluster()); Serial.println(" MiB");
   }
   
 //////////////////////////////////////Startup Magnetometer and Accelerometer//////////////////////////////////////////
@@ -274,6 +274,7 @@ void setup() {
   system = gyro = accel = mag = 0;
   
   if(!sd.exists("/!CONFIG/IMUCAL.DAT")) {
+    displayString("IMU?");
     while(system < 3 || gyro < 3 || accel < 3 || mag < 3) {
       bno.getCalibration(&system, &gyro, &accel, &mag);
       Serial.print("Sys:");
@@ -521,15 +522,13 @@ void loop() {
         uint16_t _AWS;
         uint16_t _AWA;
 
-        if(gps.available())
-          globalFix = gps.read();
         if (globalFix.valid.speed) {
           _SOG = globalFix.speed()*100;
         }
 
         _AWA = Peet.getDirection();
         
-        _SOG = 700;
+        _SOG = 700;     //remove this later (only for testing)
         //_AWA = 88;
         //_AWS = 284;
         if(millis() > tempTimer + windUpdateRate) {
@@ -590,8 +589,6 @@ void loop() {
           firstEntry = false;
         }
         //////////////////do COG
-        if(gps.available())
-          globalFix = gps.read();
         if (globalFix.valid.speed) {
           displayAngle(uint16_t(globalFix.heading()), 'T');
         }
@@ -608,8 +605,6 @@ void loop() {
           firstEntry = false;
         }
         //////////////////do SOG
-        if(gps.available())
-          globalFix = gps.read();
         if (globalFix.valid.speed) {
           displayIntFloat(globalFix.speed()*100, '\0');
         }
@@ -730,7 +725,10 @@ void loop() {
     //Fetch all data from the GPS UART and feed it to the NeoGPS object
     //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
     while (Serial1.available()) { gps.handle(Serial1.read()); }
-  
+
+    if(gps.available()) {        //this will occur at the update rate of the GPS
+      globalFix = gps.read();
+    }
 
   //check for radio messages
   #ifdef LoRaRadioPresent 
@@ -829,22 +827,22 @@ void displaySensorOffsets(const adafruit_bno055_offsets_t &calibData)
     Serial.print("Accelerometer: ");
     Serial.print(calibData.accel_offset_x); Serial.print(" ");
     Serial.print(calibData.accel_offset_y); Serial.print(" ");
-    Serial.print(calibData.accel_offset_z); Serial.print(" ");
+    Serial.println(calibData.accel_offset_z);
 
-    Serial.print("\nGyro: ");
+    Serial.print("Gyro: ");
     Serial.print(calibData.gyro_offset_x); Serial.print(" ");
     Serial.print(calibData.gyro_offset_y); Serial.print(" ");
-    Serial.print(calibData.gyro_offset_z); Serial.print(" ");
+    Serial.println(calibData.gyro_offset_z);
 
-    Serial.print("\nMag: ");
+    Serial.print("Mag: ");
     Serial.print(calibData.mag_offset_x); Serial.print(" ");
     Serial.print(calibData.mag_offset_y); Serial.print(" ");
-    Serial.print(calibData.mag_offset_z); Serial.print(" ");
+    Serial.println(calibData.mag_offset_z); 
 
-    Serial.print("\nAccel Radius: ");
-    Serial.print(calibData.accel_radius);
+    Serial.print("Accel Radius: ");
+    Serial.println(calibData.accel_radius);
 
-    Serial.print("\nMag Radius: ");
+    Serial.print("Mag Radius: ");
     Serial.println(calibData.mag_radius);
 }
 
@@ -955,6 +953,10 @@ void displayTemp(char units)
   }
 #endif
 void isrGesture () {
+  #ifdef debug
+    cout << "got gesture" << endl;
+    Serial.println(sd.card()->errorCode(), HEX);
+  #endif
   gestureSensed = true;
 }
 /////////////////////////////////////////////////////LED Ring Handling Functions////////////////////////////////////////////
@@ -1016,9 +1018,7 @@ void displayWindPixel (uint16_t angle, uint32_t color)
 }
 
 static void blip(int ledPin, int times, int dur) {
-  //Toggles a pin in the direction opposite that it currently sits a number of times with a delay of dur between them.
-  //The reason for "opposite direction" is tha this allows one to "blink" a light that is on steady as well.
-  //This function assumes that pin is already configured as an output.
+  pinMode(ledPin, OUTPUT);
   for (int i = 0; i < times; i++) {
     digitalWrite(ledPin, !digitalRead(ledPin));
     delay(dur);
@@ -1028,12 +1028,10 @@ static void blip(int ledPin, int times, int dur) {
 } //blip
 
 static void failBlink() {
-  while (true) {
-    digitalWrite(RED_LED_PIN, HIGH);
-    delay(75);
-    digitalWrite(RED_LED_PIN, LOW);
-    delay(75);
-  }
+  pinMode(RED_LED_PIN, OUTPUT );  //seems that I need this here because something is breaking this.
+  cout << "got to FailBlink" << endl;
+  displayString("FAIL");
+  while(1) blip(RED_LED_PIN, 1, 75);
 } //failBlink
 
 ///////////////////////////////////////////////////////SD Card Handling Functions////////////////////////////////////////////
@@ -1054,6 +1052,7 @@ static bool readConfig () {
       #ifdef debug
         Serial.println(F("Couldn't open new config file"));
       #endif
+      failBlink();        
       return 0;
     }
     else {
@@ -1122,7 +1121,7 @@ bool initSD() {
   // see if the card is present and can be initialized:
   if (!sd.begin(chipSelect)) {
     #ifdef debug
-      Serial.println( F("  SD card failed, or not present") );
+      Serial.println( F("SD card failed, or not present") );
     #endif
     failBlink();  //dies here (never returns)  
   }
@@ -1144,6 +1143,7 @@ void dateTime(uint16_t* date, uint16_t* time) {
   
 }
 
+//these read functions should be cleaned up later
 int csvReadText(SdFile* file, char* str, size_t size, char delim) {
   char ch;
   int rtn;
@@ -1265,10 +1265,6 @@ void tcDisable()
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
 void getLocalTime(int &localHour, byte &localDay)
 {
-  if(!gps.available()) {         //normally I'd wait to make sure there was a valid fix but I don't want to wait for GPS to use the gauge
-      globalFix = gps.read();
-  }
-
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
     localDay = globalFix.dateTime.date;
     localHour = globalFix.dateTime.hours + TimeZone;
@@ -1277,3 +1273,34 @@ void getLocalTime(int &localHour, byte &localDay)
     else if (localHour < 0) { localHour += 24; localDay -= 1; }
   }
 }
+
+static void waitForFix()
+{
+  #ifdef debug
+    Serial.print( F("Waiting for GPS fix...") );
+  #endif
+
+  uint16_t lastToggle = millis();
+
+  for (;;) {
+    while (Serial1.available()) { gps.handle(Serial1.read()); }
+    if (gps.available()) {
+      globalFix = gps.read();
+      if (globalFix.valid.location && globalFix.valid.date && globalFix.valid.time)
+        break; // Got it!
+    }
+
+    // Slowly flash the LED until we get a fix
+    if ((uint16_t) millis() - lastToggle > 500) {
+      lastToggle += 500;
+      #ifdef debug
+        Serial.write( '.' );
+      #endif
+    }
+  }
+  #ifdef debug
+    Serial.println();
+  #endif
+  gps.overrun( false ); // we had to wait a while...
+
+} // waitForFix

@@ -1,0 +1,10 @@
+diff a/BTHWind.ino b/BTHWind.ino	(rejected hunks)
+@@ -222,7 +222,7 @@
+   gps.send_P( &gpsPort, F("PGCMD,33,0") );  //turn off antenna nuisance data
+   gps.send_P( &gpsPort, F("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC & GGA  (need GGA for Altitude, Sat Count and Hdop)
+   char tmp[13];
+-  sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
++  sprintf(tmp, "PMTK220,%d\0", 5000);
+   gps.send( &gpsPort, tmp ); //set fix update rate
+   SdFile::dateTimeCallback(dateTime);  //register date time callback for file system
+ 
