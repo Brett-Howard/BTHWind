@@ -82,7 +82,7 @@
 #define RFM95_INT 12
 #define RF95_FREQ 915.0
 #define RH_RF95_MAX_MESSAGE_LEN 10
-#define noInterruptsENT_ADDRESS 1
+#define CLIENT_ADDRESS 1
 #define SERVER_ADDRESS 2
 
 // Parameter 1 = number of pixels in strip
@@ -124,7 +124,7 @@ static gps_fix globalFix;
 
 enum Mode { AppWind, WindStats, TrueWind, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
 
-int16_t bowOffset, denoInterruptsnation;
+int16_t bowOffset, declination;
 uint8_t speedMAD;
 uint16_t windUpdateRate;
 uint16_t directionFilter;
@@ -293,7 +293,6 @@ void setup() {
   uint8_t system, gyro, accel, mag;
   system = gyro = accel = mag = 0;
   
-  noInterrupts();  //needed in order to safely to SD card file I/O
   if(!sd.exists("/!CONFIG/IMUCAL.CSV")) {
     displayString("IMU?");
     while(system < 3 || gyro < 3 || accel < 3 || mag < 3) {
@@ -359,8 +358,7 @@ void setup() {
     offsets.accel_radius = csvReadInt16(&compCal, &num, ',');
     offsets.mag_radius = csvReadInt16(&compCal, &num, ',');
     compCal.close();
-    interrupts();
-
+    
     #ifdef debug
       displaySensorOffsets(offsets);
     #endif
@@ -383,10 +381,8 @@ void setup() {
   sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
   gps.send( &gpsPort, tmp ); //set fix update rate
   
-  noInterrupts(); //needed to to safe file I/O
   sd.remove("WINDSTAT.LOG");  //delete prior log file
-  interrupts();
- 
+  
 //////////////Setup and configure the anemometer object and link up the necessary interrupts
   Peet.setBowOffset(bowOffset);
   Peet.setSpeedMAD(speedMAD);
@@ -499,7 +495,7 @@ void loop() {
           newSDData = false;
           
           displayString("WAIT");
-          noInterrupts();
+          
           windStats.close();  //close the file that has been being logged to
           //Reading the file in
           //only read the file in on first entry to the menu entry
@@ -517,7 +513,6 @@ void loop() {
             windAvg=speedAccum/count;
           }
           windStats.close();
-          interrupts();
           tempTimer = millis();
         }
         /////////////do WindStats
@@ -748,9 +743,8 @@ void loop() {
         }
         accum /= elements;
         if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
-            noInterrupts();
             windStats.print(accum); windStats.print(','); windStats.println(Peet.getDirection());
-            interrupts();
+            
             blip(GREEN_LED_PIN,3,20);
             newSDData = true;
             #ifdef debug
@@ -1084,7 +1078,7 @@ static void failBlink() {
 
 ///////////////////////////////////////////////////////SD Card Handling Functions////////////////////////////////////////////
 static bool readConfig () {
-  noInterrupts();
+  
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
   //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
@@ -1147,7 +1141,7 @@ static bool readConfig () {
   while (cfg.readNextSetting())
   {
     if (cfg.nameIs("BowOffset")) { bowOffset = cfg.getIntValue(); }
-    if (cfg.nameIs("MagVariance")) { denoInterruptsnation = cfg.getIntValue(); }
+    if (cfg.nameIs("MagVariance")) { declination = cfg.getIntValue(); }
     if (cfg.nameIs("HeelAngle")) { heelAngle = cfg.getIntValue(); }
     if (cfg.nameIs("TempUnits")) { strncpy(&tempUnits, cfg.copyValue(), 1); }
     if (cfg.nameIs("MenuScrollSpeed")) { menuDelay = cfg.getIntValue(); }
@@ -1162,12 +1156,12 @@ static bool readConfig () {
   }
   cfg.end();  //clean up
   return true;
-  interrupts();
+  
 }  //readConfig
 
 
 bool initSD() {
-  noInterrupts();
+  
   bool retval;
   //while (!gps.available());  //wait for a fix
   //globalFix = gps.read();
@@ -1186,7 +1180,7 @@ bool initSD() {
     Serial.println( F("SD card initialized.") );
     retval = true;
   #endif
-  interrupts();
+  
   return retval;
 }  //initSD
 
@@ -1198,12 +1192,12 @@ void dateTime(uint16_t* date, uint16_t* time) {
     
   *date = FAT_DATE(globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay);
   *time = FAT_TIME(localHour, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
-  interrupts();
+  
 }
 
 //these read functions should be cleaned up later
 int csvReadText(SdFile* file, char* str, size_t size, char delim) {
-  noInterrupts();
+  
   char ch;
   int rtn;
   size_t n = 0;
@@ -1236,11 +1230,10 @@ int csvReadText(SdFile* file, char* str, size_t size, char delim) {
   }
   str[n] = '\0';
   return rtn;
-  interrupts();
+  
 }  //csvReadText
 
 int csvReadUint32(SdFile* file, uint32_t* num, char delim) {
-  noInterrupts();  //Shouldn't need this because its in csvReadText but I'm having issues so I'll try anything.
   char buf[20];
   char* ptr;
   int rtn = csvReadText(file, buf, sizeof(buf), delim);
@@ -1249,22 +1242,20 @@ int csvReadUint32(SdFile* file, uint32_t* num, char delim) {
   if (buf == ptr) return -3;
   while(isspace(*ptr)) ptr++;
   return *ptr == 0 ? rtn : -4;
-  interrupts();
+  
 }
 
 int csvReadUint16(SdFile* file, uint16_t* num, char delim) {
-  noInterrupts();  //Shouldn't need this because its in csvReadText but I'm having issues so I'll try anything.
   uint32_t tmp;
   int rtn = csvReadUint32(file, &tmp, delim);
   if (rtn < 0) return rtn;
   if (tmp > UINT_MAX) return -5;
   *num = tmp;
   return rtn;
-  interrupts();
+  
 }
 
 int csvReadInt32(SdFile* file, int32_t* num, char delim) {
-  noInterrupts();  //Shouldn't need this because its in csvReadText but I'm having issues so I'll try anything.
   char buf[20];
   char* ptr;
   int rtn = csvReadText(file, buf, sizeof(buf), delim);
@@ -1273,18 +1264,17 @@ int csvReadInt32(SdFile* file, int32_t* num, char delim) {
   if (buf == ptr) return -3;
   while(isspace(*ptr)) ptr++;
   return *ptr == 0 ? rtn : -4;
-  interrupts();
+  
 }
 
 int csvReadInt16(SdFile* file, int16_t* num, char delim) {
-  noInterrupts();  //Shouldn't need this because its in csvReadText but I'm having issues so I'll try anything.
   int32_t tmp;
   int rtn = csvReadInt32(file, &tmp, delim);
   if (rtn < 0) return rtn;
   if (tmp < INT_MIN || tmp > INT_MAX) return -5;
   *num = tmp;
   return tmp;
-  interrupts();
+  
 }
 
 //////////////////////////////////////////////////////Timer Counter Configuration///////////////////////////////////////////////////
@@ -1375,7 +1365,7 @@ static void waitForFix()
 
 void startLogFile()
 {
-  noInterrupts();
+  
   int localHour;
   byte localDay;
 
@@ -1423,12 +1413,11 @@ void startLogFile()
                   "<trk>\r\n\t<name>")); gpsLog.print(trackName); gpsLog.print(F("</name>\r\n\t<trkseg>\r\n"));  //heading of gpx file
   gpsLog.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
   gpsLog.close();
-  interrupts();
 } // startgpsLog
 
 static void WriteGPXLog()
 { 
-  noInterrupts();
+  
   // Log the fix information if we have a location and time
   if (globalFix.valid.location && globalFix.valid.time) {
     char date1[22];
@@ -1489,5 +1478,4 @@ static void WriteGPXLog()
     while(!gpsLog.close());
     blip(RED_LED_PIN, 1, 20);
   }
-  interrupts();
 }
