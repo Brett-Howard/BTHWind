@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug             //comment this out to not depend on USB uart.
+//#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -246,15 +246,19 @@ void setup() {
       Serial.println("LoRa radio init failed");
       while (1);
     }
-    Serial.println("LoRa radio init OK!");
- 
+    #ifdef debug
+     Serial.println("LoRa radio init OK!");
+    #endif
+
     // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
     if (!rf95.setFrequency(RF95_FREQ)) {
       Serial.println("setFrequency failed");
       while (1);
     }
-    Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
- 
+    #ifdef debug
+      Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+    #endif
+    
     //power is adjustible from 5 to 23dBm
     rf95.setTxPower(10);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
@@ -402,7 +406,7 @@ void setup() {
 }
 
 void displayIntFloat(int, char);  //compiler wants this and only this one for some reason.
-bool gestureSensed = false;
+volatile bool gestureSensed = false;
 
 void loop() {
   static Mode curMode = AppWind;
@@ -441,7 +445,7 @@ void loop() {
   }
   
   //use DIR_NEAR and DIR_FAR gestures to lock the menu
-  if(gestureSensed) {
+  if(gestureSensed || apds.isGestureAvailable()) {   //check the interrupt and poll just incase we missed it during an SD file I/O operation
     gestureSensed = false;
     gesture = apds.readGesture();
     if (gesture == DIR_NEAR || locked)
@@ -773,9 +777,7 @@ void loop() {
       GPXLogStarted = true;
     }
     else if(GPXLogging) {
-      cout << "starting GPX Log" << endl;
       WriteGPXLog();
-      cout << "finished log entry" << millis() << endl;
     }
   }
 
