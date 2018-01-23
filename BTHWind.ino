@@ -82,7 +82,7 @@
 #define RFM95_INT 12
 #define RF95_FREQ 915.0
 #define RH_RF95_MAX_MESSAGE_LEN 10
-#define CLIENT_ADDRESS 1
+#define noInterruptsENT_ADDRESS 1
 #define SERVER_ADDRESS 2
 
 // Parameter 1 = number of pixels in strip
@@ -117,7 +117,6 @@ Adafruit_BNO055 bno = Adafruit_BNO055(55);
 SparkFun_APDS9960 apds = SparkFun_APDS9960();
 #ifdef LoRaRadioPresent
   RH_RF95 rf95(RFM95_CS, RFM95_INT);
-  //RHReliableDatagram manager(rf95, SERVER_ADDRESS);
 #endif
 
 static NMEAGPS  gps;
@@ -125,7 +124,7 @@ static gps_fix globalFix;
 
 enum Mode { AppWind, WindStats, TrueWind, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
 
-int16_t bowOffset, declination;
+int16_t bowOffset, denoInterruptsnation;
 uint8_t speedMAD;
 uint16_t windUpdateRate;
 uint16_t directionFilter;
@@ -153,10 +152,15 @@ void setup() {
   pinMode(LED_RING_PIN, OUTPUT);
   pinMode(RED_LED_PIN, OUTPUT );
   pinMode(GREEN_LED_PIN, OUTPUT );
+  pinMode(RFM95_CS, OUTPUT);
+  pinMode(SD_CHIP_SEL, OUTPUT);
 
   digitalWrite(RED_LED_PIN, LOW);
   digitalWrite(GREEN_LED_PIN, LOW);
   digitalWrite(LED_RING_PIN, LOW);
+  digitalWrite(RFM95_CS, HIGH);
+  digitalWrite(SD_CHIP_SEL, HIGH);
+
 
   //setup radio pins
   pinMode(RFM95_RST, OUTPUT);
@@ -228,6 +232,11 @@ void setup() {
 
 //////////////////////////////////////////////////////Setup LoRa Radio//////////////////////////////////////////////////////
   #ifdef LoRaRadioPresent
+    
+    // Ensure serial flash is not interfering with radio communication on SPI bus
+    pinMode(4, OUTPUT);
+    digitalWrite(4, HIGH);
+    
     digitalWrite(RFM95_RST, LOW);
     delay(10);
     digitalWrite(RFM95_RST, HIGH);
@@ -247,12 +256,12 @@ void setup() {
     Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
  
     //power is adjustible from 5 to 23dBm
-    rf95.setTxPower(10, false);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
+    rf95.setTxPower(10);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
 ///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
   if(initSD()) {
-    Serial.print(F("Card size: ")); Serial.print(sd.card()->cardSize() * 0.000512 + 0.5); Serial.println(" MiB");
+    //Serial.print(F("Card size: ")); Serial.print(sd.card()->cardSize() * 0.000512 + 0.5); Serial.println(" MiB");
     //removing card free because it takes a while on a 16GB card.
     //Serial.print(F("Card free: ")); Serial.print(sd.vol()->freeClusterCount() * .000512 * sd.vol()->blocksPerCluster()); Serial.println(" MiB");
   }
@@ -269,17 +278,19 @@ void setup() {
     cout << "BNO055 IMU Initialized" << endl;
   #endif
 
+  //These lines align the axes to the direction that I currently have my bread board sitting on the couch.  May need to chage when in the case.
   bno.setAxisRemap(Adafruit_BNO055::REMAP_CONFIG_P2);
   bno.setAxisSign(Adafruit_BNO055::REMAP_SIGN_P2);
   
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
-//sd.remove("/!CONFIG/IMUCAL.DAT");           //uncomment this line to erase the IMU calibration data//
+//sd.remove("/!CONFIG/IMUCAL.CSV");           //uncomment this line to erase the IMU calibration data//
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
   uint8_t system, gyro, accel, mag;
   system = gyro = accel = mag = 0;
   
-  if(!sd.exists("/!CONFIG/IMUCAL.DAT")) {
+  noInterrupts();  //needed in order to safely to SD card file I/O
+  if(!sd.exists("/!CONFIG/IMUCAL.CSV")) {
     displayString("IMU?");
     while(system < 3 || gyro < 3 || accel < 3 || mag < 3) {
       bno.getCalibration(&system, &gyro, &accel, &mag);
@@ -302,11 +313,11 @@ void setup() {
     displaySensorOffsets(offsets); 
   #endif
   
-  if(!sd.exists("/!CONFIG/IMUCAL.DAT")) {
+  if(!sd.exists("/!CONFIG/IMUCAL.CSV")) {
     #ifdef debug
       cout << "Compass calibration file did not exist." << endl;
     #endif
-    if(compCal.open("/!CONFIG/IMUCAL.DAT", O_CREAT | O_WRITE | O_EXCL)) {
+    if(compCal.open("/!CONFIG/IMUCAL.CSV", O_CREAT | O_WRITE | O_EXCL)) {
       cout << "New compass calibration file created." << endl;
       compCal.print(offsets.accel_offset_x); compCal.print(',');
       compCal.print(offsets.accel_offset_y); compCal.print(',');
@@ -323,7 +334,7 @@ void setup() {
     compCal.close(); 
   }
 
-  if(compCal.open("/!CONFIG/IMUCAL.DAT", O_READ))
+  if(compCal.open("/!CONFIG/IMUCAL.CSV", O_READ))
   {
     #ifdef debug
       cout << "Reading input from IMU calibration file" << endl;
@@ -343,7 +354,9 @@ void setup() {
     offsets.mag_offset_z = csvReadInt16(&compCal, &num, ',');
     offsets.accel_radius = csvReadInt16(&compCal, &num, ',');
     offsets.mag_radius = csvReadInt16(&compCal, &num, ',');
-    
+    compCal.close();
+    interrupts();
+
     #ifdef debug
       displaySensorOffsets(offsets);
     #endif
@@ -360,14 +373,15 @@ void setup() {
   #ifdef debug
 	  Serial.println(F("SD card configuration read successfully"));
 	#endif
-
+  
   //write update rate into the GPS  (has to be moved here after we've fetched the value from the config)
   char tmp[13];
   sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
   gps.send( &gpsPort, tmp ); //set fix update rate
   
-
+  noInterrupts(); //needed to to safe file I/O
   sd.remove("WINDSTAT.LOG");  //delete prior log file
+  interrupts();
  
 //////////////Setup and configure the anemometer object and link up the necessary interrupts
   Peet.setBowOffset(bowOffset);
@@ -404,8 +418,11 @@ void loop() {
   static sensors_event_t compEvent;
   static uint8_t compTimer;
   static bool GPXLogStarted = false;
-  
-  
+
+  //adjust wind ring brightness based on ambient light
+  apds.readAmbientLight(w);
+  strip.setBrightness(map(w,0,37889,5,255));
+  strip.show();
 
   //Determine if we're over heeling
   if(millis() > compTimer + 50) {   //only read compass and heel information every 50mS (20Hz)
@@ -426,7 +443,7 @@ void loop() {
   //use DIR_NEAR and DIR_FAR gestures to lock the menu
   if(gestureSensed) {
     gestureSensed = false;
-    /*if (apds.isGestureAvailable())*/ gesture = apds.readGesture();
+    gesture = apds.readGesture();
     if (gesture == DIR_NEAR || locked)
     {
       if(!locked) {
@@ -450,6 +467,7 @@ void loop() {
         if(firstEntry) {
           scrollString("APPARENT WIND", sizeof("APPARENT WIND"), menuDelay);
           firstEntry = false;
+          restoreBackground();
         }
         ///////do AppWind
         if(wndSpd > 0) {
@@ -458,7 +476,7 @@ void loop() {
             tempTimer = millis();
           }
         }
-        else { displayString("BEER"); }
+        else { displayString("CALM"); }
         #ifdef noisyDebug
           cout << "AWS: "  << wndSpd << " AWA: " << Peet.getDirection() << endl;
         #endif
@@ -477,6 +495,7 @@ void loop() {
           newSDData = false;
           
           displayString("WAIT");
+          noInterrupts();
           windStats.close();  //close the file that has been being logged to
           //Reading the file in
           //only read the file in on first entry to the menu entry
@@ -494,6 +513,7 @@ void loop() {
             windAvg=speedAccum/count;
           }
           windStats.close();
+          interrupts();
           tempTimer = millis();
         }
         /////////////do WindStats
@@ -678,6 +698,7 @@ void loop() {
         else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
         else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
         break;
+    
     case Heel:
         if(firstEntry) {
           scrollString("Reduce Heel", sizeof("Reduce Heel"), menuDelay/2);
@@ -723,7 +744,9 @@ void loop() {
         }
         accum /= elements;
         if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
+            noInterrupts();
             windStats.print(accum); windStats.print(','); windStats.println(Peet.getDirection());
+            interrupts();
             blip(GREEN_LED_PIN,3,20);
             newSDData = true;
             #ifdef debug
@@ -738,13 +761,10 @@ void loop() {
     if(wndSpd > windMax) { windMax = wndSpd; }
   }
 
-  static bool GPXLogWasJustWritten = false;
-  uint16_t GPXTimer;
-
   //Fetch all data from the GPS UART and feed it to the NeoGPS object
   //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
   while (Serial1.available()) { gps.handle(Serial1.read()); }
-  
+        
   //update the global fix to be used in menu items and for GPX logging
   if(gps.available()) {
     globalFix = gps.read();
@@ -753,63 +773,50 @@ void loop() {
       GPXLogStarted = true;
     }
     else if(GPXLogging) {
+      cout << "starting GPX Log" << endl;
       WriteGPXLog();
-      GPXLogWasJustWritten = true;
-      GPXTimer = millis();
-      cout << "writing log @" << millis() << endl;
+      cout << "finished log entry" << millis() << endl;
     }
   }
 
-  //It seems there is a race condition between the SdFat library writing the GPX data
-  //and the RadioHead library talking to the LoRa module.  Just putting a delay here 
-  //really makes the loop sluggish so I'm putting this workaround in to only delay if
-  //the file was just written and to do so in a non blocking way.
+  //check for radio messages
+  #ifdef LoRaRadioPresent 
+    if (rf95.available())
+    {
+      uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
+      uint8_t len = sizeof(buf);
+      uint8_t data[RH_RF95_MAX_MESSAGE_LEN];
 
-  //if the log file was just written delay 300mS
-  if(!GPXLogWasJustWritten || (GPXLogWasJustWritten && (millis() > GPXTimer + 300))) {  
-    if(GPXLogWasJustWritten && (millis() > GPXTimer + 300))
-      GPXLogWasJustWritten = false;
-        
-    //check for radio messages
-    cout << "Checking radio @" << millis() << endl;
-    #ifdef LoRaRadioPresent 
-      if (rf95.available())
+      if (rf95.recv(buf, &len))
       {
-        uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
-        uint8_t len = sizeof(buf);
-        uint8_t data[RH_RF95_MAX_MESSAGE_LEN];
+        uint16_t spd;
+        int16_t dir;
 
-        if (rf95.recv(buf, &len))
-        {
-          uint16_t spd;
-          int16_t dir;
-
-          if(stricmp((char*)buf,"McFly") == 0) {
-            strcpy((char*)data, "HiBiff");
-            #ifdef debug
-              cout << "Got McFly?...  Sending \"HiBiff\"" << endl;
-            #endif
-          }
-          else {
-            //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
-            strcpy((char*)data, "A");
-            memcpy(&spd, &buf, 2);
-            memcpy(&dir, &buf[2], 2);
-            memcpy(&battVoltage, &buf[4], 2);
-            //cout << spd << " " << dir << " " << battVoltage << endl;
-            Peet.ProcessWirelessData(spd, dir);
-          }
-          rf95.send(data, sizeof(data));  //transmit response
-          //rf95.waitPacketSent();
-        }
-        else {
+        if(stricmp((char*)buf,"McFly") == 0) {
+          strcpy((char*)data, "HiBiff");
           #ifdef debug
-            cout << "Receive failed" << endl;
+            cout << "Got McFly?...  Sending \"HiBiff\"" << endl;
           #endif
         }
+        else {
+          //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+          strcpy((char*)data, "A");
+          memcpy(&spd, &buf, 2);
+          memcpy(&dir, &buf[2], 2);
+          memcpy(&battVoltage, &buf[4], 2);
+          //cout << spd << " " << dir << " " << battVoltage << endl;
+          Peet.ProcessWirelessData(spd, dir);
+        }
+        rf95.send(data, sizeof(data));  //transmit response
+        //rf95.waitPacketSent();
       }
-    #endif
-  }
+      else {
+        #ifdef debug
+          cout << "Receive failed" << endl;
+        #endif
+      }
+    }
+  #endif
   
   //cout << F("Free Mem: ") << freeRam() << endl;
   
@@ -1075,6 +1082,7 @@ static void failBlink() {
 
 ///////////////////////////////////////////////////////SD Card Handling Functions////////////////////////////////////////////
 static bool readConfig () {
+  noInterrupts();
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
   //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
@@ -1137,7 +1145,7 @@ static bool readConfig () {
   while (cfg.readNextSetting())
   {
     if (cfg.nameIs("BowOffset")) { bowOffset = cfg.getIntValue(); }
-    if (cfg.nameIs("MagVariance")) { declination = cfg.getIntValue(); }
+    if (cfg.nameIs("MagVariance")) { denoInterruptsnation = cfg.getIntValue(); }
     if (cfg.nameIs("HeelAngle")) { heelAngle = cfg.getIntValue(); }
     if (cfg.nameIs("TempUnits")) { strncpy(&tempUnits, cfg.copyValue(), 1); }
     if (cfg.nameIs("MenuScrollSpeed")) { menuDelay = cfg.getIntValue(); }
@@ -1152,10 +1160,12 @@ static bool readConfig () {
   }
   cfg.end();  //clean up
   return true;
+  interrupts();
 }  //readConfig
 
 
 bool initSD() {
+  noInterrupts();
   bool retval;
   //while (!gps.available());  //wait for a fix
   //globalFix = gps.read();
@@ -1164,7 +1174,7 @@ bool initSD() {
   #endif
   
   // see if the card is present and can be initialized:
-  if (!sd.begin(SD_CHIP_SEL, SD_SCK_MHZ(25))) {
+  if (!sd.begin(SD_CHIP_SEL)) {
     #ifdef debug
       Serial.println( F("SD card failed, or not present") );
     #endif
@@ -1174,6 +1184,7 @@ bool initSD() {
     Serial.println( F("SD card initialized.") );
     retval = true;
   #endif
+  interrupts();
   return retval;
 }  //initSD
 
@@ -1185,11 +1196,12 @@ void dateTime(uint16_t* date, uint16_t* time) {
     
   *date = FAT_DATE(globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay);
   *time = FAT_TIME(localHour, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
-  
+  interrupts();
 }
 
 //these read functions should be cleaned up later
 int csvReadText(SdFile* file, char* str, size_t size, char delim) {
+  noInterrupts();
   char ch;
   int rtn;
   size_t n = 0;
@@ -1222,9 +1234,11 @@ int csvReadText(SdFile* file, char* str, size_t size, char delim) {
   }
   str[n] = '\0';
   return rtn;
+  interrupts();
 }  //csvReadText
 
 int csvReadUint32(SdFile* file, uint32_t* num, char delim) {
+  noInterrupts();  //Shouldn't need this because its in csvReadText but I'm having issues so I'll try anything.
   char buf[20];
   char* ptr;
   int rtn = csvReadText(file, buf, sizeof(buf), delim);
@@ -1233,18 +1247,22 @@ int csvReadUint32(SdFile* file, uint32_t* num, char delim) {
   if (buf == ptr) return -3;
   while(isspace(*ptr)) ptr++;
   return *ptr == 0 ? rtn : -4;
+  interrupts();
 }
 
 int csvReadUint16(SdFile* file, uint16_t* num, char delim) {
+  noInterrupts();  //Shouldn't need this because its in csvReadText but I'm having issues so I'll try anything.
   uint32_t tmp;
   int rtn = csvReadUint32(file, &tmp, delim);
   if (rtn < 0) return rtn;
   if (tmp > UINT_MAX) return -5;
   *num = tmp;
   return rtn;
+  interrupts();
 }
 
 int csvReadInt32(SdFile* file, int32_t* num, char delim) {
+  noInterrupts();  //Shouldn't need this because its in csvReadText but I'm having issues so I'll try anything.
   char buf[20];
   char* ptr;
   int rtn = csvReadText(file, buf, sizeof(buf), delim);
@@ -1253,15 +1271,18 @@ int csvReadInt32(SdFile* file, int32_t* num, char delim) {
   if (buf == ptr) return -3;
   while(isspace(*ptr)) ptr++;
   return *ptr == 0 ? rtn : -4;
+  interrupts();
 }
 
 int csvReadInt16(SdFile* file, int16_t* num, char delim) {
+  noInterrupts();  //Shouldn't need this because its in csvReadText but I'm having issues so I'll try anything.
   int32_t tmp;
   int rtn = csvReadInt32(file, &tmp, delim);
   if (rtn < 0) return rtn;
   if (tmp < INT_MIN || tmp > INT_MAX) return -5;
   *num = tmp;
   return tmp;
+  interrupts();
 }
 
 //////////////////////////////////////////////////////Timer Counter Configuration///////////////////////////////////////////////////
@@ -1352,12 +1373,12 @@ static void waitForFix()
 
 void startLogFile()
 {
+  noInterrupts();
   int localHour;
   byte localDay;
 
   if(globalFix.valid.date && globalFix.valid.time)
   {
-    cout << "global fix valid" << endl;
     char directory[9];
     
     getLocalTime(localHour, localDay); 
@@ -1400,21 +1421,21 @@ void startLogFile()
                   "<trk>\r\n\t<name>")); gpsLog.print(trackName); gpsLog.print(F("</name>\r\n\t<trkseg>\r\n"));  //heading of gpx file
   gpsLog.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
   gpsLog.close();
+  interrupts();
 } // startgpsLog
 
 static void WriteGPXLog()
 { 
+  noInterrupts();
   // Log the fix information if we have a location and time
   if (globalFix.valid.location && globalFix.valid.time) {
     char date1[22];
-    snprintf(date1, 22, "%4d-%02d-%02dT%02d:%02d:%02dZ", globalFix.dateTime.full_year(), globalFix.dateTime.month, 
+    snprintf(date1, 21, "%4d-%02d-%02dT%02d:%02d:%02dZ", globalFix.dateTime.full_year(), globalFix.dateTime.month, 
             globalFix.dateTime.date, globalFix.dateTime.hours, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
     
-    if(!gpsLog.isOpen())
-      gpsLog.open(filename, O_WRITE);
-      
-    delay(150);
-    gpsLog.seekSet(gpsLog.fileSize() - 28);
+    while(!gpsLog.isOpen()) gpsLog.open(filename, O_WRITE);
+
+    while(!gpsLog.seekSet(gpsLog.fileSize() - 28));
     gpsLog.print(F("\t\t<trkpt lat=\""));
 
     if (globalFix.valid.location) {
@@ -1463,7 +1484,8 @@ static void WriteGPXLog()
     //replace closing tags
     gpsLog.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
 
-    gpsLog.close();
+    while(!gpsLog.close());
     blip(RED_LED_PIN, 1, 20);
   }
+  interrupts();
 }
