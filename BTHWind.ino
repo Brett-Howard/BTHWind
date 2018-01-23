@@ -260,7 +260,7 @@ void setup() {
     #endif
     
     //power is adjustible from 5 to 23dBm
-    rf95.setTxPower(10);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
+    rf95.setTxPower(13);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
 ///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
