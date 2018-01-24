@@ -533,32 +533,32 @@ void loop() {
         if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
           displayString("STRT");
         }
-        if(millis() > tempTimer+1000 && millis() < tempTimer+2000) {
+        if(millis() > tempTimer+1000 && millis() < tempTimer+3000) {
           char temp[5];
           sprintf(temp, "%02u%02u", startHours, startMinutes);
           displayString(temp);
         }
-        if(millis() > tempTimer+2000 && millis() < tempTimer+3000) {
+        if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
           displayString("END ");
         }
-        if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
+        if(millis() > tempTimer+4000 && millis() < tempTimer+6000) {
           char temp[5];
           sprintf(temp, "%02u%02u", curHours, curMinutes);
           displayString(temp);
         }
-        if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {  
+        if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {  
           displayString("AVG ");
         }
-        if(millis() > tempTimer+5000 && millis() < tempTimer+6000) {
+        if(millis() > tempTimer+7000 && millis() < tempTimer+9000) {
           displayIntFloat(windAvg, '\0');
         }
-        if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {
+        if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {
           displayString("MAX ");
         }
-        if(millis() > tempTimer+7000 && millis() < tempTimer+8000) {
+        if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
           displayIntFloat(windMax, '\0');
         }
-        if(millis() > tempTimer+8000)
+        if(millis() > tempTimer+12000)
           tempTimer = millis();
 
         ////////////Transition State
