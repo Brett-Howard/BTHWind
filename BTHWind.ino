@@ -531,32 +531,32 @@ void loop() {
 
         //show the values on the display
         if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
-          displayString("AVG ");
-        }
-        if(millis() > tempTimer+1000 && millis() < tempTimer+2000) {
-          displayIntFloat(windAvg, '\0');
-        }
-        if(millis() > tempTimer+2000 && millis() < tempTimer+3000) {
-          displayString("MAX ");
-        }
-        if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
-          displayIntFloat(windMax, '\0');
-        }
-        if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {
           displayString("STRT");
         }
-        if(millis() > tempTimer+5000 && millis() < tempTimer+6000) {
+        if(millis() > tempTimer+1000 && millis() < tempTimer+2000) {
           char temp[5];
           sprintf(temp, "%02u%02u", startHours, startMinutes);
           displayString(temp);
         }
-        if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {
+        if(millis() > tempTimer+2000 && millis() < tempTimer+3000) {
           displayString("END ");
         }
-        if(millis() > tempTimer+7000 && millis() < tempTimer+8000) {
+        if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
           char temp[5];
           sprintf(temp, "%02u%02u", curHours, curMinutes);
           displayString(temp);
+        }
+        if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {  
+          displayString("AVG ");
+        }
+        if(millis() > tempTimer+5000 && millis() < tempTimer+6000) {
+          displayIntFloat(windAvg, '\0');
+        }
+        if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {
+          displayString("MAX ");
+        }
+        if(millis() > tempTimer+7000 && millis() < tempTimer+8000) {
+          displayIntFloat(windMax, '\0');
         }
         if(millis() > tempTimer+8000)
           tempTimer = millis();
@@ -1449,7 +1449,6 @@ void startLogFile()
 
 static void WriteGPXLog()
 { 
-  
   // Log the fix information if we have a location and time
   if (globalFix.valid.location && globalFix.valid.time) {
     char date1[22];
