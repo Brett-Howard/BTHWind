@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
+#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -137,6 +137,7 @@ int16_t baroRefAlt;
 char trackName[20] = {0};
 char filename[23];
 bool GPXLogging;
+uint8_t startHours = 0, startMinutes = 0, curHours = 0, curMinutes = 0;
 
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
@@ -172,7 +173,7 @@ void setup() {
   strip.show(); // Initialize all pixels to 'off'
 
   alpha4.begin(0x70);  // pass in the address
-  scrollString("BTHWind", sizeof("BTHWind"), 175);
+  scrollString("BTHWind\0", 175);
   
 ///////////////////////////////////////Startup Barometric Sensor/////////////////////////////////////////////////////
   if (!baro.begin()) {
@@ -398,7 +399,18 @@ void setup() {
   uint16_t w;
   apds.readAmbientLight(w);
   strip.setBrightness(map(w,0,37889,5,255));
-  animateRedGreenWipe(60);  //pretty startup animation  
+  animateRedGreenWipe(60);  //pretty startup animation
+
+  while(!gps.available())
+    if(Serial1.available())
+      gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
+    
+  globalFix = gps.read();       //snag the fix.
+  uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
+  getLocalTime(&startHours, &startDay);
+  startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
+  curHours = startHours;
+  curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
 }
 
 void displayIntFloat(int, char);  //compiler wants this and only this one for some reason.
@@ -447,11 +459,11 @@ void loop() {
     if (gesture == DIR_NEAR || locked)
     {
       if(!locked) {
-        scrollString("LOCKED", sizeof("LOCKED"), menuDelay);
+        scrollString("LOCKED\0", menuDelay);
         locked = 1;
       }
       if(locked && gesture == DIR_FAR) {
-        scrollString("UNLOCKED", sizeof("UNLOCKED"), menuDelay);
+        scrollString("UNLOCKED\0", menuDelay);
         locked = 0;
       }
       else if(locked)
@@ -465,7 +477,7 @@ void loop() {
   {
     case AppWind:
         if(firstEntry) {
-          scrollString("APPARENT WIND", sizeof("APPARENT WIND"), menuDelay);
+          scrollString("APPARENT WIND\0", menuDelay);
           firstEntry = false;
           restoreBackground();
         }
@@ -490,7 +502,7 @@ void loop() {
     
     case WindStats:
         if(firstEntry || newSDData) {
-          scrollString("WIND STATS", sizeof("WIND STATS"), menuDelay);
+          scrollString("SAIL STATS\0", menuDelay);
           firstEntry = false;
           newSDData = false;
           
@@ -530,7 +542,23 @@ void loop() {
         if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
           displayIntFloat(windMax, '\0');
         }
-        if(millis() > tempTimer+4000)
+        if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {
+          displayString("STRT");
+        }
+        if(millis() > tempTimer+5000 && millis() < tempTimer+6000) {
+          char temp[5];
+          sprintf(temp, "%02u%02u", startHours, startMinutes);
+          displayString(temp);
+        }
+        if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {
+          displayString("END ");
+        }
+        if(millis() > tempTimer+7000 && millis() < tempTimer+8000) {
+          char temp[5];
+          sprintf(temp, "%02u%02u", curHours, curMinutes);
+          displayString(temp);
+        }
+        if(millis() > tempTimer+8000)
           tempTimer = millis();
 
         ////////////Transition State
@@ -543,7 +571,7 @@ void loop() {
     
     case TrueWind:
         if(firstEntry) {
-          scrollString("TRUE WIND", sizeof("TRUE WIND"), menuDelay);
+          scrollString("TRUE WIND\0", menuDelay);
           firstEntry = false;
         }
         //////////////do TrueWind
@@ -587,7 +615,7 @@ void loop() {
     
     case CompHead:
         if(firstEntry) {
-          scrollString("COMPASS HEADING", sizeof("COMPASS HEADING"), menuDelay);
+          scrollString("COMPASS HEADING\0", menuDelay);
           firstEntry = false;
         }
         /////////////do CompHead
@@ -616,7 +644,7 @@ void loop() {
     
     case COG:
         if(firstEntry) {
-          scrollString("GPS COG", sizeof("GPS COG"), menuDelay);
+          scrollString("GPS COG\0", menuDelay);
           firstEntry = false;
         }
         //////////////////do COG
@@ -634,7 +662,7 @@ void loop() {
     
     case SOG:
         if(firstEntry) {
-          scrollString("GPS SOG", sizeof("GPS SOG"), menuDelay);
+          scrollString("GPS SOG\0", menuDelay);
           firstEntry = false;
         }
         //////////////////do SOG
@@ -653,7 +681,7 @@ void loop() {
     
     case Baro:
         if(firstEntry) {
-          scrollString("BARO", sizeof("BARO"), menuDelay);
+          scrollString("BAROMETER\0", menuDelay);
           firstEntry = false;
         }
         ////////////////Do Baro
@@ -670,7 +698,7 @@ void loop() {
     
     case Temp:
         if(firstEntry) {
-          scrollString("TEMP", sizeof("TEMP"), menuDelay);
+          scrollString("TEMPERATURE\0", menuDelay);
           firstEntry = false;
         }
         ///////////////Do Temp
@@ -687,7 +715,7 @@ void loop() {
     
     case MastBatt:
         if(firstEntry) {
-          scrollString("MAST BATTERY", sizeof("MAST BATTERY"), menuDelay);
+          scrollString("MAST BATTERY\0", menuDelay);
           firstEntry = false;
         }
         ///////////////Do MastBatt
@@ -700,7 +728,7 @@ void loop() {
     
     case Heel:
         if(firstEntry) {
-          scrollString("Reduce Heel", sizeof("Reduce Heel"), menuDelay/2);
+          scrollString("Reduce Heel\0", menuDelay/2);
           firstEntry = false;
           tempTimer = millis();
         }
@@ -737,6 +765,9 @@ void loop() {
       }
       if(i_log == elements)
       {
+        uint8_t curDay;
+        getLocalTime(&curHours, &curDay);
+        curMinutes = globalFix.dateTime.minutes;
         accum = 0;
         for(int i = 0; i < elements; i++) {
           accum += speedBuf[i];
@@ -744,7 +775,6 @@ void loop() {
         accum /= elements;
         if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
             windStats.print(accum); windStats.print(','); windStats.println(Peet.getDirection());
-            
             blip(GREEN_LED_PIN,3,20);
             newSDData = true;
             #ifdef debug
@@ -916,8 +946,9 @@ void displayAngle(uint16_t val, char lastChar)
   alpha4.writeDisplay();
 }
 
-void scrollString(char *s, uint8_t size, uint16_t speed)
+void scrollString(const char s[], uint16_t speed)
 {
+  uint8_t size = strlen(s) + 1;
   alpha4.clear();
   alpha4.writeDisplay();
   for(int i = 0; i < size-1; i++)
@@ -1186,9 +1217,9 @@ bool initSD() {
 
 void dateTime(uint16_t* date, uint16_t* time) {
   byte localDay;
-  int localHour;
+  uint8_t localHour;
   
-  getLocalTime(localHour, localDay);
+  getLocalTime(&localHour, &localDay);
     
   *date = FAT_DATE(globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay);
   *time = FAT_TIME(localHour, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
@@ -1321,14 +1352,15 @@ void tcDisable()
 }
 
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
-void getLocalTime(int &localHour, byte &localDay)
+void getLocalTime(uint8_t *localHour, byte *localDay)
 {
+  int localHourTemp;
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
-    localDay = globalFix.dateTime.date;
-    localHour = globalFix.dateTime.hours + TimeZone;
+    *localDay = globalFix.dateTime.date;
+    localHourTemp = globalFix.dateTime.hours + TimeZone;
     
-    if (localHour > 23) { localHour -= 24; localDay += 1; }
-    else if (localHour < 0) { localHour += 24; localDay -= 1; }
+    if (localHourTemp > 23) { *localHour = localHourTemp - 24; *localDay += 1; }
+    else if (localHourTemp < 0) { *localHour = localHourTemp + 24; *localDay -= 1; }
   }
 }
 
@@ -1366,14 +1398,14 @@ static void waitForFix()
 void startLogFile()
 {
   
-  int localHour;
+  uint8_t localHour;
   byte localDay;
 
   if(globalFix.valid.date && globalFix.valid.time)
   {
     char directory[9];
     
-    getLocalTime(localHour, localDay); 
+    getLocalTime(&localHour, &localDay); 
     
     //for some reason if these two sprintf's are swapped in order it zero's out localHour.  No idea why
     sprintf(filename, "/%02d-%02d-%02d/%02d-%02d%s", globalFix.dateTime.year, globalFix.dateTime.month, localDay, 
