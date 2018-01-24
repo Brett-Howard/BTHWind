@@ -740,6 +740,24 @@ void loop() {
         }
         break;
   }
+  
+  
+  //Fetch all data from the GPS UART and feed it to the NeoGPS object
+  //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
+  while (Serial1.available()) { gps.handle(Serial1.read()); }
+      
+  //update the global fix to be used in menu items and for GPX logging
+  if(gps.available()) {
+    globalFix = gps.read();
+    if(!GPXLogStarted && GPXLogging) {
+      startLogFile();
+      GPXLogStarted = true;
+    }
+    else if(GPXLogging) {
+      WriteGPXLog();
+    }
+  }
+
 
   if(Peet.available()) { 
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop (right here)
@@ -755,7 +773,7 @@ void loop() {
     uint32_t accum = 0;
     static uint32_t logTimer = 0;
     uint16_t elements = sizeof(speedBuf)/sizeof(speedBuf[0]);
-    
+
     //accumulate a pile of wind speeds then average them every so often and write that value out to the SD card
     if(millis() > logTimer+1000) {
       if(i_log < elements)
@@ -789,22 +807,6 @@ void loop() {
     if(wndSpd > windMax) { windMax = wndSpd; }
   }
 
-  //Fetch all data from the GPS UART and feed it to the NeoGPS object
-  //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
-  while (Serial1.available()) { gps.handle(Serial1.read()); }
-        
-  //update the global fix to be used in menu items and for GPX logging
-  if(gps.available()) {
-    globalFix = gps.read();
-    if(!GPXLogStarted && GPXLogging) {
-      startLogFile();
-      GPXLogStarted = true;
-    }
-    else if(GPXLogging) {
-      WriteGPXLog();
-    }
-  }
-
   //check for radio messages
   #ifdef LoRaRadioPresent 
     if (rf95.available())
@@ -825,12 +827,12 @@ void loop() {
           #endif
         }
         else {
-          //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+          cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
           strcpy((char*)data, "A");
           memcpy(&spd, &buf, 2);
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
-          //cout << spd << " " << dir << " " << battVoltage << endl;
+          cout << spd << " " << dir << " " << battVoltage << endl;
           Peet.ProcessWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit response
@@ -1026,10 +1028,6 @@ void displayTemp(char units)
   }
 #endif
 void isrGesture () {
-  #ifdef debug
-    cout << "got gesture" << endl;
-    Serial.println(sd.card()->errorCode(), HEX);
-  #endif
   gestureSensed = true;
 }
 /////////////////////////////////////////////////////LED Ring Handling Functions////////////////////////////////////////////
@@ -1361,6 +1359,8 @@ void getLocalTime(uint8_t *localHour, byte *localDay)
     
     if (localHourTemp > 23) { *localHour = localHourTemp - 24; *localDay += 1; }
     else if (localHourTemp < 0) { *localHour = localHourTemp + 24; *localDay -= 1; }
+    else
+      *localHour = localHourTemp;
   }
 }
 
