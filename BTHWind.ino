@@ -124,7 +124,7 @@ static gps_fix globalFix;
 
 enum Mode { AppWind, WindStats, TrueWind, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
 
-int16_t bowOffset, declination;
+int16_t bowOffset, variance;
 uint8_t speedMAD;
 uint16_t windUpdateRate;
 uint16_t directionFilter;
@@ -420,7 +420,7 @@ void loop() {
   static Mode curMode = AppWind;
   static Mode prevMode;
   uint8_t gesture; 
-  static uint16_t w,wndSpd,windAvg,windMax = 0;
+  static uint16_t w,wndSpd,windMax = 0;
   static bool firstEntry = 1;
   static int curHeelAngle;
   static uint32_t tempTimer;
@@ -430,6 +430,7 @@ void loop() {
   static sensors_event_t compEvent;
   static uint8_t compTimer;
   static bool GPXLogStarted = false;
+  uint32_t speedAccum, sinAccum, cosAccum = 0;
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -511,18 +512,23 @@ void loop() {
           windStats.close();  //close the file that has been being logged to
           //Reading the file in
           //only read the file in on first entry to the menu entry
+          
+          uint16_t i, j, k, count = 0;
+          
           if(windStats.open("WINDSTAT.LOG", O_READ))
-          {
-            uint32_t speedAccum = 0;
-            uint16_t i, j, count = 0;
-            
+          { 
             while (windStats.available()) {
-              csvReadUint16(&windStats, &i, ',');
+              csvReadUint16(&windStats, &i, ',');  //read off the speed
               speedAccum += i;
-              csvReadUint16(&windStats, &j, ',');  //read the wind direction off and throw it away
+              csvReadUint16(&windStats, &j, ',');  //read off the sin component of the wind direction
+              sinAccum += j;
+              csvReadUint16(&windStats, &k,',');   //read off the cos component of the wind direction
+              cosAccum += k;
               count++;
             }
-            windAvg=speedAccum/count;
+            speedAccum /= count;
+            sinAccum /= count;
+            cosAccum /= count;
           }
           windStats.close();
           tempTimer = millis();
@@ -550,7 +556,7 @@ void loop() {
           displayString("AVG ");
         }
         if(millis() > tempTimer+7000 && millis() < tempTimer+9000) {
-          displayIntFloat(windAvg, '\0');
+          displayIntFloat(speedAccum, '\0');
         }
         if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {
           displayString("MAX ");
@@ -558,7 +564,13 @@ void loop() {
         if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
           displayIntFloat(windMax, '\0');
         }
-        if(millis() > tempTimer+12000)
+        if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
+          displayString("AvWD");
+        }
+        if(millis() > tempTimer+13000 && millis() < tempTimer+15000) {
+          displayAngle(int(round(radToDeg(atan2(cosAccum, sinAccum))+360)) % 360, '\0');
+        }
+        if(millis() > tempTimer+15000)
           tempTimer = millis();
 
         ////////////Transition State
@@ -801,9 +813,11 @@ void loop() {
         //only use compass speed if IMU has a quality fix
         bno.getCalibration(&system, &gyro, &accel, &mag);
         if(mag > 0) {   //if the compass is within calibaration
-          _COG_ = round(compEvent.orientation.x);  //don't need to check for ==360 rounding errors here because the math works out the same
+          //variance added to compass heading becasue its magnetic referenced and we want wind true referenced.
+          _COG_ = round(compEvent.orientation.x) + variance;  //don't need to check for ==360 rounding errors here because the math works out the same
         }
         else {
+          //not adding variance because GPS heading is true referenced
           _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
         }
       }
@@ -1223,7 +1237,7 @@ static bool readConfig () {
   while (cfg.readNextSetting())
   {
     if (cfg.nameIs("BowOffset")) { bowOffset = cfg.getIntValue(); }
-    if (cfg.nameIs("MagVariance")) { declination = cfg.getIntValue(); }
+    if (cfg.nameIs("MagVariance")) { variance = cfg.getIntValue(); }
     if (cfg.nameIs("HeelAngle")) { heelAngle = cfg.getIntValue(); }
     if (cfg.nameIs("TempUnits")) { strncpy(&tempUnits, cfg.copyValue(), 1); }
     if (cfg.nameIs("MenuScrollSpeed")) { menuDelay = cfg.getIntValue(); }
