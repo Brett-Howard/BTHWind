@@ -631,7 +631,8 @@ void loop() {
         else {
           //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
           
-          heading = compEvent.orientation.x;
+          heading = round(compEvent.orientation.x);  //round is more accurate than just letting it trunc shoot me I'm anal
+          if(heading == 360) heading = 0;  //the round operation makes it possible for 360 to be reported for 359.5 to 359.99999
           displayAngle(heading, 'M');
         }
 
@@ -758,7 +759,7 @@ void loop() {
     }
   }
 
-
+  //Calculate statistics to be used in the SAIL STATS menu
   if(Peet.available()) { 
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop (right here)
   
@@ -769,34 +770,87 @@ void loop() {
       restoreBackground();
 
     static uint16_t i_log = 0;
-    static uint16_t speedBuf[60];      //size of this buffer is about how often the log file is updated (in seconds)
-    uint32_t accum = 0;
+
+    typedef struct sailStats {
+      uint16_t speed;
+      int16_t sinTWD;
+      int16_t cosTWD;
+    };
+    static sailStats statAry[60];   //size of this buffer is about how often the log file is updated (in seconds)
+
+    uint32_t accumSpeed = 0;
+    int32_t accumSinTWD, accumCosTWD;
+    uint16_t _SOG_, _COG_;
+    
     static uint32_t logTimer = 0;
-    uint16_t elements = sizeof(speedBuf)/sizeof(speedBuf[0]);
+    uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);
 
     //accumulate a pile of wind speeds then average them every so often and write that value out to the SD card
     if(millis() > logTimer+1000) {
+      if(globalFix.valid.speed) {
+        _SOG_ = globalFix.speed() * 100;   //get GPS speeed
+      }
+
+      //use gps speed if traveling over 1 knot otherwise use the compass speed
+      if(_SOG_ > 100 && globalFix.valid.heading)
+        _COG_ = globalFix.heading();
+      else {
+        static uint8_t system, gyro, accel, mag;
+        system = gyro = accel = mag = 0;
+
+        //only use compass speed if IMU has a quality fix
+        bno.getCalibration(&system, &gyro, &accel, &mag);
+        if(mag > 0) {
+          _COG_ = round(compEvent.orientation.x);  //don't need to check for 360 here because the math works out the same
+        }
+        else {
+          _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
+        }
+      }
+      cout << "SOG: " << _SOG_ << " COG: " << _COG_ << endl;
+      
       if(i_log < elements)
       {
-        speedBuf[i_log] = wndSpd;
+        statAry[i_log].speed = wndSpd;
+        cout << "windSpeed: " << statAry[i_log].speed;
+        statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
+        cout << " TWD: " << getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_);
+        cout << " sin: " << statAry[i_log].sinTWD;
+        statAry[i_log].cosTWD = round(cos(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
+        cout << " cos: " << statAry[i_log].cosTWD << endl;
+        
         i_log++;
       }
       if(i_log == elements)
       {
+        //update trip end time
         uint8_t curDay;
         getLocalTime(&curHours, &curDay);
         curMinutes = globalFix.dateTime.minutes;
-        accum = 0;
+        
+        //calculate average wind speed and direction components
+        accumSpeed = accumSinTWD = accumCosTWD = 0;
         for(int i = 0; i < elements; i++) {
-          accum += speedBuf[i];
+          accumSpeed += statAry[i].speed;
+          cout << "speed[" << i << "]" << statAry[i].speed;
+          accumSinTWD += statAry[i].sinTWD;
+          cout << " sin[" << i << "]" << statAry[i].sinTWD;
+          accumCosTWD += statAry[i].cosTWD;
+          cout << " cos[" << i << "]" << statAry[i].cosTWD << endl;
+          //cout << "spdAccum: " << accumSpeed << " sin: " << accumSinTWD << " cos: " << accumCosTWD << endl;
         }
-        accum /= elements;
+        accumSpeed /= elements;
+        accumSinTWD /= elements;
+        accumCosTWD /= elements;
+        
         if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
-            windStats.print(accum); windStats.print(','); windStats.println(Peet.getDirection());
+            windStats.print(accumSpeed); windStats.print(','); 
+            windStats.print(accumSinTWD); windStats.print(',');
+            windStats.println(accumCosTWD);
             blip(GREEN_LED_PIN,3,20);
             newSDData = true;
             #ifdef debug
-              cout << F("SD card average wind log entry written. Timestamp: ") << millis() << F(" Value: ") << accum << endl;
+              cout << F("Avg Written. Time: ") << millis() << F(" Values: ") << accumSpeed << ',' << accumSinTWD << ',' << accumCosTWD << endl;
             #endif
         }
         i_log = 0;
@@ -809,7 +863,7 @@ void loop() {
 
   //check for radio messages
   #ifdef LoRaRadioPresent 
-    if (rf95.available())
+    /*if (rf95.available())
     {
       uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
       uint8_t len = sizeof(buf);
@@ -833,7 +887,7 @@ void loop() {
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
           cout << spd << " " << dir << " " << battVoltage << endl;
-          Peet.ProcessWirelessData(spd, dir);
+          Peet.processWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit response
         //rf95.waitPacketSent();
@@ -843,9 +897,11 @@ void loop() {
           cout << "Receive failed" << endl;
         #endif
       }
-    }
+    }*/
   #endif
   
+  Peet.processWirelessData(500, 330);
+
   //cout << F("Free Mem: ") << freeRam() << endl;
   
 }  //loop
@@ -872,7 +928,7 @@ uint16_t getTWS(uint16_t AWA, uint16_t AWS, int16_t SOG)
   }
 }
 
-uint16_t getTWA(uint16_t AWA, uint16_t AWS, int16_t SOG)
+uint16_t getTWA(uint16_t AWA, uint16_t AWS, uint16_t SOG)
 {
   float _AWA = degToRad(AWA);
   float tanAlpha = sin(_AWA)/(float(AWS)/float(SOG)-cos(_AWA));
@@ -890,6 +946,10 @@ uint16_t getTWA(uint16_t AWA, uint16_t AWS, int16_t SOG)
     return(tdiff-180);
   else
     return(tdiff);
+}
+
+uint16_t getTWD(uint16_t AWA, uint16_t AWS, uint16_t SOG, uint16_t COG) { 
+  return (COG + getTWA(AWA, AWS, SOG) + 360) % 360; 
 }
 
 extern "C" char *sbrk(int i);
@@ -1381,8 +1441,9 @@ static void waitForFix()
     }
 
     // Slowly flash the LED until we get a fix
-    if ((uint16_t) millis() - lastToggle > 500) {
-      lastToggle += 500;
+    if ((uint16_t) millis() - lastToggle > 1000) {
+      lastToggle += 1000;
+      scrollString( "WAITING FOR GPS FIX\0", 150 );
       #ifdef debug
         Serial.write( '.' );
       #endif
