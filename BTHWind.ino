@@ -800,8 +800,8 @@ void loop() {
 
         //only use compass speed if IMU has a quality fix
         bno.getCalibration(&system, &gyro, &accel, &mag);
-        if(mag > 0) {
-          _COG_ = round(compEvent.orientation.x);  //don't need to check for 360 here because the math works out the same
+        if(mag > 0) {   //if the compass is within calibaration
+          _COG_ = round(compEvent.orientation.x);  //don't need to check for ==360 rounding errors here because the math works out the same
         }
         else {
           _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
@@ -812,12 +812,8 @@ void loop() {
       if(i_log < elements)
       {
         statAry[i_log].speed = wndSpd;
-        cout << "windSpeed: " << statAry[i_log].speed;
-        statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
-        cout << " TWD: " << getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_);
-        cout << " sin: " << statAry[i_log].sinTWD;
+        statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);  //10000 is to not need floats
         statAry[i_log].cosTWD = round(cos(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
-        cout << " cos: " << statAry[i_log].cosTWD << endl;
         
         i_log++;
       }
@@ -832,12 +828,8 @@ void loop() {
         accumSpeed = accumSinTWD = accumCosTWD = 0;
         for(int i = 0; i < elements; i++) {
           accumSpeed += statAry[i].speed;
-          cout << "speed[" << i << "]" << statAry[i].speed;
           accumSinTWD += statAry[i].sinTWD;
-          cout << " sin[" << i << "]" << statAry[i].sinTWD;
           accumCosTWD += statAry[i].cosTWD;
-          cout << " cos[" << i << "]" << statAry[i].cosTWD << endl;
-          //cout << "spdAccum: " << accumSpeed << " sin: " << accumSinTWD << " cos: " << accumCosTWD << endl;
         }
         accumSpeed /= elements;
         accumSinTWD /= elements;
@@ -863,7 +855,7 @@ void loop() {
 
   //check for radio messages
   #ifdef LoRaRadioPresent 
-    /*if (rf95.available())
+    if (rf95.available())
     {
       uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
       uint8_t len = sizeof(buf);
@@ -897,10 +889,11 @@ void loop() {
           cout << "Receive failed" << endl;
         #endif
       }
-    }*/
+    }
   #endif
   
-  Peet.processWirelessData(500, 330);
+  //temporary fake wind datum for debugging.
+  //Peet.processWirelessData(500, 330);
 
   //cout << F("Free Mem: ") << freeRam() << endl;
   
