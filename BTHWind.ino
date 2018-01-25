@@ -791,8 +791,8 @@ void loop() {
         _SOG_ = globalFix.speed() * 100;   //get GPS speeed
       }
 
-      //use gps speed if traveling over 1 knot otherwise use the compass speed
-      if(_SOG_ > 100 && globalFix.valid.heading)
+      //use gps speed if traveling over 4 knot otherwise use the compass speed
+      if(_SOG_ > 400 && globalFix.valid.heading)
         _COG_ = globalFix.heading();
       else {
         static uint8_t system, gyro, accel, mag;
