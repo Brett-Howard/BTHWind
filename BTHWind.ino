@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug             //comment this out to not depend on USB uart.
+//#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -903,12 +903,16 @@ switch(curMode)
           #endif
         }
         else {
-          cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+          #ifdef debug
+            cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+          #endif
           strcpy((char*)data, "A");
           memcpy(&spd, &buf, 2);
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
-          cout << spd << " " << dir << " " << battVoltage << endl;
+          #ifdef debug
+            cout << spd << " " << dir << " " << battVoltage << endl;
+          #endif
           Peet.processWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit response
@@ -1093,9 +1097,11 @@ void displayBaro()
 void displayTemp(char units)
 {
   if(units == 'c' || units == 'C')
-    displayIntFloat(baro.readTemperature()*100, 'C');
+    displayIntFloat(baro.readTemperature()*100, 'C');         //use baro pressure sensor for temp
+    //displayIntFloat(bno.getTemp()*100, 'C');                //use IMU chip for temp
   else if(units == 'f' || units == 'F')
-    displayIntFloat(ctof(baro.readTemperature())*100, 'F');
+    displayIntFloat(ctof(baro.readTemperature())*100, 'F');   //use baro pressure sensor for temp
+    //displayIntFloat(ctof(bno.getTemp())*100,'F');           //use IMU chip for temp
 }
 ///////////////////////////////////////////////////////////Interrupt Handlers///////////////////////////////////////////////
 #ifndef LoRaRadioPresent  //The anemometer interrupts are not needed if we don't have one connected
