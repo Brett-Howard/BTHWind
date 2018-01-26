@@ -24,7 +24,7 @@ class Anemometer
 		//these functions need to be connected to interrupts externally
 		void processSpeedTransition();
 		void processDirTransition();
-		void ProcessWirelessData(uint16_t speed, int16_t direction);
+		void processWirelessData(uint16_t speed, int16_t direction);
 		//The slow timer interrupt is needed to allow wind speed to go to zero
 		//The other interrupt handlers never get called if the anemometer truely stops.
 		void slowTimer();  //1Hz works well

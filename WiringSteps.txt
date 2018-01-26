@@ -12,6 +12,7 @@ Masthead Unit:
 Base Unit:
     Stack LoRa Radio, Processor, and Alpha Numeric Display
     I2C SCL/SDA + PWR and GND to Compass, Optical, and Baro sensors
+    3.3Kohm pullup on SCL and 2.2Kohm pullup on SDA
     +5V and GND to Alpha Display and LED Ring
     Level translator from 3.3V to 5V on pin 11 to LED ring input pin
     RX/TX + PWR/GND for GPS module

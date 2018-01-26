@@ -124,7 +124,7 @@ static gps_fix globalFix;
 
 enum Mode { AppWind, WindStats, TrueWind, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
 
-int16_t bowOffset, declination;
+int16_t bowOffset, variance;
 uint8_t speedMAD;
 uint16_t windUpdateRate;
 uint16_t directionFilter;
@@ -229,7 +229,7 @@ void setup() {
   gps.send_P( &gpsPort, F("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC & GGA  (need GGA for Altitude, Sat Count and Hdop)
   SdFile::dateTimeCallback(dateTime);  //register date time callback for file system
 
-  waitForFix();
+  waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
 
 //////////////////////////////////////////////////////Setup LoRa Radio//////////////////////////////////////////////////////
   #ifdef LoRaRadioPresent
@@ -394,11 +394,12 @@ void setup() {
     attachInterrupt(digitalPinToInterrupt(ANEMOMETER_DIR_PIN), isrDirection, FALLING);
     tcConfigure(1000);  //1 second timer 
   #endif
+    //if there is a LoRa radio the radio data is polled on and given to the anemometer object when received in the main loop.
     attachInterrupt(digitalPinToInterrupt(GESTURE_INT),isrGesture, FALLING);
   
   uint16_t w;
   apds.readAmbientLight(w);
-  strip.setBrightness(map(w,0,37889,5,255));
+  strip.setBrightness(map(w,0,37889,5,255));  //set the brightness for the power up sequence so it doesn't change after powerup.
   animateRedGreenWipe(60);  //pretty startup animation
 
   while(!gps.available())
@@ -413,14 +414,14 @@ void setup() {
   curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
 }
 
-void displayIntFloat(int, char);  //compiler wants this and only this one for some reason.
+void displayIntFloat(int, char);  //compiler wants this function and only this one listed here for some reason.
 volatile bool gestureSensed = false;
 
 void loop() {
   static Mode curMode = AppWind;
   static Mode prevMode;
   uint8_t gesture; 
-  static uint16_t w,wndSpd,windAvg,windMax = 0;
+  static uint16_t w,wndSpd,windMax = 0;
   static bool firstEntry = 1;
   static int curHeelAngle;
   static uint32_t tempTimer;
@@ -430,6 +431,9 @@ void loop() {
   static sensors_event_t compEvent;
   static uint8_t compTimer;
   static bool GPXLogStarted = false;
+  static uint32_t speedAccum;
+  static int32_t sinAccum, cosAccum;
+  static uint16_t AvWindDir;
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -473,272 +477,297 @@ void loop() {
     }
 }
 
-  switch(curMode)
-  {
-    case AppWind:
-        if(firstEntry) {
-          scrollString("APPARENT WIND\0", menuDelay);
-          firstEntry = false;
-          restoreBackground();
-        }
-        ///////do AppWind
-        if(wndSpd > 0) {
-          if(millis() > tempTimer + windUpdateRate) {
-            displayIntFloat(wndSpd,'\0');
-            tempTimer = millis();
-          }
-        }
-        else { displayString("CALM"); }
-        #ifdef noisyDebug
-          cout << "AWS: "  << wndSpd << " AWA: " << Peet.getDirection() << endl;
-        #endif
-        //////Transition state
-        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_UP) { curMode = TrueWind; firstEntry = true; }
-        else if(gesture == DIR_DOWN) { curMode = WindStats; firstEntry = true; }
-        break;
-    
-    
-    case WindStats:
-        if(firstEntry || newSDData) {
-          scrollString("SAIL STATS\0", menuDelay);
-          firstEntry = false;
-          newSDData = false;
-          
-          displayString("WAIT");
-          
-          windStats.close();  //close the file that has been being logged to
-          //Reading the file in
-          //only read the file in on first entry to the menu entry
-          if(windStats.open("WINDSTAT.LOG", O_READ))
-          {
-            uint32_t speedAccum = 0;
-            uint16_t i, j, count = 0;
-            
-            while (windStats.available()) {
-              csvReadUint16(&windStats, &i, ',');
-              speedAccum += i;
-              csvReadUint16(&windStats, &j, ',');  //read the wind direction off and throw it away
-              count++;
-            }
-            windAvg=speedAccum/count;
-          }
-          windStats.close();
-          tempTimer = millis();
-        }
-        /////////////do WindStats
-
-        //show the values on the display
-        if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
-          displayString("STRT");
-        }
-        if(millis() > tempTimer+1000 && millis() < tempTimer+3000) {
-          char temp[5];
-          sprintf(temp, "%02u%02u", startHours, startMinutes);
-          displayString(temp);
-        }
-        if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
-          displayString("END ");
-        }
-        if(millis() > tempTimer+4000 && millis() < tempTimer+6000) {
-          char temp[5];
-          sprintf(temp, "%02u%02u", curHours, curMinutes);
-          displayString(temp);
-        }
-        if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {  
-          displayString("AVG ");
-        }
-        if(millis() > tempTimer+7000 && millis() < tempTimer+9000) {
-          displayIntFloat(windAvg, '\0');
-        }
-        if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {
-          displayString("MAX ");
-        }
-        if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
-          displayIntFloat(windMax, '\0');
-        }
-        if(millis() > tempTimer+12000)
-          tempTimer = millis();
-
-        ////////////Transition State
-        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_UP) { curMode = AppWind; firstEntry = true; }
-        else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
-        break;
-    
-    
-    case TrueWind:
-        if(firstEntry) {
-          scrollString("TRUE WIND\0", menuDelay);
-          firstEntry = false;
-        }
-        //////////////do TrueWind
-        uint16_t _SOG;
-        uint16_t _AWS;
-        uint16_t _AWA;
-
-        //if(gps.available())
-          //globalFix = gps.read();    //this not needed because of the global read below
-        if (globalFix.valid.speed) {
-          _SOG = globalFix.speed()*100;
-        }
-
-        _AWA = Peet.getDirection();
-        
-        _SOG = 700;     //remove this later (only for testing)
-        //_AWA = 88;
-        //_AWS = 284;
+//This switch is the state machine for all the menu items. 
+switch(curMode)
+{
+  case AppWind:
+      if(firstEntry) {
+        scrollString("APPARENT WIND\0", menuDelay);
+        firstEntry = false;
+        restoreBackground();
+      }
+      ///////do AppWind
+      if(wndSpd > 0) {
         if(millis() > tempTimer + windUpdateRate) {
-          #ifdef noisyDebug
-            cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
-          #endif
-          displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
-          #ifdef noisyDebug
-            cout << getTWS(_AWA, wndSpd, _SOG) << endl;
-          #endif
-          displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
-          #ifdef noisyDebug
-            cout << getTWA(_AWA, wndSpd, _SOG) << endl;
-          #endif
-          tempTimer = millis();
-        }   
-        
-        //////////////Transition State
-        if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
-        else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
-        break;
-    
-    
-    case CompHead:
-        if(firstEntry) {
-          scrollString("COMPASS HEADING\0", menuDelay);
-          firstEntry = false;
-        }
-        /////////////do CompHead
-        
-        static uint16_t heading;
-        static uint8_t system, gyro, accel, mag;
-        system = gyro = accel = mag = 0;
-
-        bno.getCalibration(&system, &gyro, &accel, &mag);
-
-        if(mag < 1)
-          displayString("CAL ");
-        else {
-          //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
-          
-          heading = compEvent.orientation.x;
-          displayAngle(heading, 'M');
-        }
-
-        ///////////Transition State
-        if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = COG; firstEntry = true; }
-        break; 
-    
-    
-    case COG:
-        if(firstEntry) {
-          scrollString("GPS COG\0", menuDelay);
-          firstEntry = false;
-        }
-        //////////////////do COG
-        //if(gps.available())
-          //globalFix = gps.read();     //this read no longer needed because of the master one below
-        if (globalFix.valid.speed) {
-          displayAngle(uint16_t(globalFix.heading()), 'T');
-        }
-        //////////////////Transition State
-        if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = CompHead; firstEntry = true; }
-        break; 
-    
-    
-    case SOG:
-        if(firstEntry) {
-          scrollString("GPS SOG\0", menuDelay);
-          firstEntry = false;
-        }
-        //////////////////do SOG
-        //if(gps.available())
-          //globalFix = gps.read();  //this read no longer needed because of the master one below
-        if (globalFix.valid.speed) {
-          displayIntFloat(globalFix.speed()*100, '\0');
-        }
-
-        //////////////////Transition State
-        if(gesture == DIR_LEFT) { curMode = CompHead; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = MastBatt; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = SOG; firstEntry = true; }
-        break;
-    
-    
-    case Baro:
-        if(firstEntry) {
-          scrollString("BAROMETER\0", menuDelay);
-          firstEntry = false;
-        }
-        ////////////////Do Baro
-        if(millis() > tempTimer+1000) { 
-          displayBaro();
-          tempTimer = millis(); 
-        } 
-        ////////////////Transition State
-        if(gesture == DIR_LEFT) { curMode = Temp; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = AppWind; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Baro; firstEntry = true; }
-        break;
-    
-    
-    case Temp:
-        if(firstEntry) {
-          scrollString("TEMPERATURE\0", menuDelay);
-          firstEntry = false;
-        }
-        ///////////////Do Temp
-        //update temp only once per second but in a non blocking way that doesn't slow down gesture response.
-        if(millis() > tempTimer+1000) { 
-          displayTemp(tempUnits); 
-          tempTimer = millis(); 
-        } 
-        ///////////////Transition State
-        if(gesture == DIR_LEFT) { curMode = MastBatt; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = Baro; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Temp; firstEntry = true; }
-        break;
-    
-    case MastBatt:
-        if(firstEntry) {
-          scrollString("MAST BATTERY\0", menuDelay);
-          firstEntry = false;
-        }
-        ///////////////Do MastBatt
-        displayIntFloat(battVoltage, 'V');
-        ///////////////Transition State
-        if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
-        else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
-        else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
-        break;
-    
-    case Heel:
-        if(firstEntry) {
-          scrollString("Reduce Heel\0", menuDelay/2);
-          firstEntry = false;
+          displayIntFloat(wndSpd,'\0');
           tempTimer = millis();
         }
-        if(millis() > tempTimer && millis() < tempTimer+5000) {
-          displayAngle(curHeelAngle, '\0');
+      }
+      else { displayString("CALM"); }
+      #ifdef noisyDebug
+        cout << "AWS: "  << wndSpd << " AWA: " << Peet.getDirection() << endl;
+      #endif
+      //////Transition state
+      if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = TrueWind; firstEntry = true; }
+      else if(gesture == DIR_DOWN) { curMode = WindStats; firstEntry = true; }
+      break;
+  
+  
+  case WindStats:
+      if(firstEntry || newSDData) {
+        scrollString("SAIL STATS\0", menuDelay);
+        firstEntry = false;
+        newSDData = false;
+        
+        displayString("WAIT");
+        
+        windStats.close();  //close the file that has been being logged to
+        //Reading the file in
+        //only read the file in on first entry to the menu entry
+        
+        uint16_t i = 0, count = 0;
+        int16_t j = 0, k = 0;
+        
+        speedAccum = 0;
+        sinAccum = 0;
+        cosAccum = 0;
+        count = 0;
+        if(windStats.open("WINDSTAT.LOG", O_READ))
+        { 
+          while (windStats.available()) {
+            csvReadUint16(&windStats, &i, ',');  //read off the speed
+            //cout << "spd[" << count << "]:" << i;
+            speedAccum += i;
+            csvReadInt16(&windStats, &j, ',');  //read off the sin component of the wind direction
+            //cout << " sin[" << count << "]:" << j;
+            sinAccum += j;
+            csvReadInt16(&windStats, &k,',');   //read off the cos component of the wind direction
+            //cout << " cos[" << count << "]:" << k << endl;
+            cosAccum += k;
+            count++;
+          }
+          speedAccum /= count;
+          sinAccum /= count;
+          cosAccum /= count;
+          //cout << "spdAcc:" << speedAccum << " sinAcc:" << sinAccum << " cosAcc:" << cosAccum << endl;
+          //cout << int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360 << endl;
+          AvWindDir = int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360;
+
         }
-        if(millis() > tempTimer+5000) {
-          firstEntry = true;  //set so that upon returning you display menu heading
-        }
-        break;
+        windStats.close();
+        tempTimer = millis();
+      }
+      /////////////do WindStats
+
+      //show the values on the display
+      if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
+        displayString("STRT");
+      }
+      else if(millis() > tempTimer+1000 && millis() < tempTimer+3000) {
+        char temp[5];
+        sprintf(temp, "%02u%02u", startHours, startMinutes);
+        displayString(temp);
+      }
+      else if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
+        displayString("END ");
+      }
+      else if(millis() > tempTimer+4000 && millis() < tempTimer+6000) {
+        char temp[5];
+        sprintf(temp, "%02u%02u", curHours, curMinutes);
+        displayString(temp);
+      }
+      else if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {  
+        displayString("AVG ");
+      }
+      else if(millis() > tempTimer+7000 && millis() < tempTimer+9000) {
+        displayIntFloat(speedAccum, '\0');
+      }
+      else if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {
+        displayString("MAX ");
+      }
+      else if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
+        displayIntFloat(windMax, '\0');
+      }
+      else if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
+        displayString("AvWD");
+      }
+      else if(millis() > tempTimer+13000 && millis() < tempTimer+15000) {
+        displayAngle(AvWindDir, '\0');
+      }
+      else if(millis() > tempTimer+15000)
+        tempTimer = millis();
+
+      ////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = AppWind; firstEntry = true; }
+      else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
+      break;
+  
+  
+  case TrueWind:
+      if(firstEntry) {
+        scrollString("TRUE WIND\0", menuDelay);
+        firstEntry = false;
+      }
+      //////////////do TrueWind
+      uint16_t _SOG;
+      uint16_t _AWS;
+      uint16_t _AWA;
+
+      //if(gps.available())
+        //globalFix = gps.read();    //this not needed because of the global read below
+      if (globalFix.valid.speed) {
+        _SOG = globalFix.speed()*100;
+      }
+
+      _AWA = Peet.getDirection();
+      
+      _SOG = 700;     //remove this later (only for testing)
+      //_AWA = 88;
+      //_AWS = 284;
+      if(millis() > tempTimer + windUpdateRate) {
+        #ifdef noisyDebug
+          cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
+        #endif
+        displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
+        #ifdef noisyDebug
+          cout << getTWS(_AWA, wndSpd, _SOG) << endl;
+        #endif
+        displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
+        #ifdef noisyDebug
+          cout << getTWA(_AWA, wndSpd, _SOG) << endl;
+        #endif
+        tempTimer = millis();
+      }   
+      
+      //////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
+      else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
+      break;
+  
+  
+  case CompHead:
+      if(firstEntry) {
+        scrollString("COMPASS HEADING\0", menuDelay);
+        firstEntry = false;
+      }
+      /////////////do CompHead
+      
+      static uint16_t heading;
+      static uint8_t system, gyro, accel, mag;
+      system = gyro = accel = mag = 0;
+
+      bno.getCalibration(&system, &gyro, &accel, &mag);
+
+      if(mag < 1)
+        displayString("CAL ");
+      else {
+        //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
+        
+        heading = round(compEvent.orientation.x);  //round is more accurate than just letting it trunc shoot me I'm anal
+        if(heading == 360) heading = 0;  //the round operation makes it possible for 360 to be reported for 359.5 to 359.99999
+        displayAngle(heading, 'M');
+      }
+
+      ///////////Transition State
+      if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = COG; firstEntry = true; }
+      break; 
+  
+  
+  case COG:
+      if(firstEntry) {
+        scrollString("GPS COG\0", menuDelay);
+        firstEntry = false;
+      }
+      //////////////////do COG
+      //if(gps.available())
+        //globalFix = gps.read();     //this read no longer needed because of the master one below
+      if (globalFix.valid.speed) {
+        displayAngle(uint16_t(globalFix.heading()), 'T');
+      }
+      //////////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = CompHead; firstEntry = true; }
+      break; 
+  
+  
+  case SOG:
+      if(firstEntry) {
+        scrollString("GPS SOG\0", menuDelay);
+        firstEntry = false;
+      }
+      //////////////////do SOG
+      //if(gps.available())
+        //globalFix = gps.read();  //this read no longer needed because of the master one below
+      if (globalFix.valid.speed) {
+        displayIntFloat(globalFix.speed()*100, '\0');
+      }
+
+      //////////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = CompHead; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = MastBatt; firstEntry = true; }
+      else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = SOG; firstEntry = true; }
+      break;
+  
+  
+  case Baro:
+      if(firstEntry) {
+        scrollString("BAROMETER\0", menuDelay);
+        firstEntry = false;
+      }
+      ////////////////Do Baro
+      if(millis() > tempTimer+1000) { 
+        displayBaro();
+        tempTimer = millis(); 
+      } 
+      ////////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = Temp; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = AppWind; firstEntry = true; }
+      else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Baro; firstEntry = true; }
+      break;
+  
+  
+  case Temp:
+      if(firstEntry) {
+        scrollString("TEMPERATURE\0", menuDelay);
+        firstEntry = false;
+      }
+      ///////////////Do Temp
+      //update temp only once per second but in a non blocking way that doesn't slow down gesture response.
+      if(millis() > tempTimer+1000) { 
+        displayTemp(tempUnits); 
+        tempTimer = millis(); 
+      } 
+      ///////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = MastBatt; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = Baro; firstEntry = true; }
+      else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Temp; firstEntry = true; }
+      break;
+  
+  case MastBatt:
+      if(firstEntry) {
+        scrollString("MAST BATTERY\0", menuDelay);
+        firstEntry = false;
+      }
+      ///////////////Do MastBatt
+      displayIntFloat(battVoltage, 'V');
+      ///////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
+      else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
+      break;
+  
+  case Heel:
+      if(firstEntry) {
+        scrollString("Reduce Heel\0", menuDelay/2);
+        firstEntry = false;
+        tempTimer = millis();
+      }
+      if(millis() > tempTimer && millis() < tempTimer+5000) {
+        displayAngle(curHeelAngle, '\0');
+      }
+      if(millis() > tempTimer+5000) {
+        firstEntry = true;  //set so that upon returning you display menu heading
+      }
+      break;
   }
   
   
@@ -758,7 +787,7 @@ void loop() {
     }
   }
 
-
+  //Calculate statistics to be used in the SAIL STATS menu
   if(Peet.available()) { 
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop (right here)
   
@@ -769,34 +798,81 @@ void loop() {
       restoreBackground();
 
     static uint16_t i_log = 0;
-    static uint16_t speedBuf[60];      //size of this buffer is about how often the log file is updated (in seconds)
-    uint32_t accum = 0;
+
+    typedef struct sailStats {
+      uint16_t speed;
+      int16_t sinTWD;
+      int16_t cosTWD;
+    };
+    static sailStats statAry[60];   //size of this buffer is "about" how often the log file is updated (in seconds)
+
+    uint32_t accumSpeed = 0;
+    int32_t accumSinTWD, accumCosTWD;
+    uint16_t _SOG_, _COG_;
+    
     static uint32_t logTimer = 0;
-    uint16_t elements = sizeof(speedBuf)/sizeof(speedBuf[0]);
+    uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);
 
     //accumulate a pile of wind speeds then average them every so often and write that value out to the SD card
-    if(millis() > logTimer+1000) {
+    if(millis() > logTimer+1000) {   //capture a new data point once per second
+      if(globalFix.valid.speed) {
+        _SOG_ = globalFix.speed() * 100;   //get GPS speeed
+      }
+
+      //use gps speed if traveling over 4 knot otherwise use the compass speed
+      if(_SOG_ > 400 && globalFix.valid.heading)
+        _COG_ = globalFix.heading();
+      else {
+        static uint8_t system, gyro, accel, mag;
+        system = gyro = accel = mag = 0;
+
+        //only use compass speed if IMU has a quality fix
+        bno.getCalibration(&system, &gyro, &accel, &mag);
+        if(mag > 0) {   //if the compass is within calibaration
+          //variance added to compass heading becasue its magnetic referenced and we want wind true referenced.
+          _COG_ = int(round(compEvent.orientation.x) + variance + 360) % 360;  //don't need to check for ==360 rounding errors here because the math works out the same
+        }
+        else {
+          //not adding variance because GPS heading is true referenced
+          _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
+        }
+      }
+      //cout << "SOG: " << _SOG_ << " COG: " << _COG_ << endl;
+      
       if(i_log < elements)
       {
-        speedBuf[i_log] = wndSpd;
+        statAry[i_log].speed = wndSpd;
+        statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);  //10000 is to not need floats
+        statAry[i_log].cosTWD = round(cos(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
+        
         i_log++;
       }
       if(i_log == elements)
       {
+        //update trip end time
         uint8_t curDay;
         getLocalTime(&curHours, &curDay);
         curMinutes = globalFix.dateTime.minutes;
-        accum = 0;
+        
+        //calculate average wind speed and direction components
+        accumSpeed = accumSinTWD = accumCosTWD = 0;
         for(int i = 0; i < elements; i++) {
-          accum += speedBuf[i];
+          accumSpeed += statAry[i].speed;
+          accumSinTWD += statAry[i].sinTWD;
+          accumCosTWD += statAry[i].cosTWD;
         }
-        accum /= elements;
+        accumSpeed /= elements;
+        accumSinTWD /= elements;
+        accumCosTWD /= elements;
+        
         if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
-            windStats.print(accum); windStats.print(','); windStats.println(Peet.getDirection());
+            windStats.print(accumSpeed); windStats.print(','); 
+            windStats.print(accumSinTWD); windStats.print(',');
+            windStats.println(accumCosTWD);
             blip(GREEN_LED_PIN,3,20);
             newSDData = true;
             #ifdef debug
-              cout << F("SD card average wind log entry written. Timestamp: ") << millis() << F(" Value: ") << accum << endl;
+              cout << F("Avg Written. Time: ") << millis() << F(" Values: ") << accumSpeed << ',' << accumSinTWD << ',' << accumCosTWD << endl;
             #endif
         }
         i_log = 0;
@@ -833,7 +909,7 @@ void loop() {
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
           cout << spd << " " << dir << " " << battVoltage << endl;
-          Peet.ProcessWirelessData(spd, dir);
+          Peet.processWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit response
         //rf95.waitPacketSent();
@@ -859,6 +935,7 @@ float ctof(float c) { return c*1.8+32; }
 
 float ftoc(float f) { return f-32*0.555556; }
 
+//get True Wind Speed
 uint16_t getTWS(uint16_t AWA, uint16_t AWS, int16_t SOG)
 {
   float _AWA = degToRad(AWA);
@@ -872,7 +949,8 @@ uint16_t getTWS(uint16_t AWA, uint16_t AWS, int16_t SOG)
   }
 }
 
-uint16_t getTWA(uint16_t AWA, uint16_t AWS, int16_t SOG)
+//get True Wind Angle
+uint16_t getTWA(uint16_t AWA, uint16_t AWS, uint16_t SOG)
 {
   float _AWA = degToRad(AWA);
   float tanAlpha = sin(_AWA)/(float(AWS)/float(SOG)-cos(_AWA));
@@ -890,6 +968,11 @@ uint16_t getTWA(uint16_t AWA, uint16_t AWS, int16_t SOG)
     return(tdiff-180);
   else
     return(tdiff);
+}
+
+//get True Wind Direction
+uint16_t getTWD(uint16_t AWA, uint16_t AWS, uint16_t SOG, uint16_t COG) { 
+  return (COG + getTWA(AWA, AWS, SOG) + 360) % 360; 
 }
 
 extern "C" char *sbrk(int i);
@@ -1015,14 +1098,14 @@ void displayTemp(char units)
     displayIntFloat(ctof(baro.readTemperature())*100, 'F');
 }
 ///////////////////////////////////////////////////////////Interrupt Handlers///////////////////////////////////////////////
-#ifndef LoRaRadioPresent
+#ifndef LoRaRadioPresent  //The anemometer interrupts are not needed if we don't have one connected
   void isrSpeed() {
     Peet.processSpeedTransition();
   }
   void isrDirection() {
     Peet.processDirTransition();
   }
-  void TC5_Handler (void) {
+  void TC5_Handler (void) {   //This timer gets moved to the mast head in a wireless version of this project
     Peet.slowTimer();
     TC5->COUNT16.INTFLAG.bit.MC0 = 1; //don't change this, it's part of the timer code
   }
@@ -1070,6 +1153,7 @@ void restoreBackground() {
   }
 } //restoreBackground
 
+//This updates the LED ring with the lights corresponding to the passed angle
 void displayWindPixel (uint16_t angle, uint32_t color)
 {
   static float delta = 360.0 / strip.numPixels() / 2.0;  //static so its only calculated once
@@ -1088,6 +1172,7 @@ void displayWindPixel (uint16_t angle, uint32_t color)
   strip.show();
 }
 
+//Just blinks an LED you can set the number of times and the duration of the blinks
 static void blip(int ledPin, int times, int dur) {
   pinMode(ledPin, OUTPUT);
   for (int i = 0; i < times; i++) {
@@ -1098,6 +1183,7 @@ static void blip(int ledPin, int times, int dur) {
   }
 } //blip
 
+//This is a way of saying we've died on the vine.  This function is meant to never return.
 static void failBlink() {
   pinMode(RED_LED_PIN, OUTPUT );  //seems that I need this here because something is breaking this.
   cout << "got to FailBlink" << endl;
@@ -1170,7 +1256,7 @@ static bool readConfig () {
   while (cfg.readNextSetting())
   {
     if (cfg.nameIs("BowOffset")) { bowOffset = cfg.getIntValue(); }
-    if (cfg.nameIs("MagVariance")) { declination = cfg.getIntValue(); }
+    if (cfg.nameIs("MagVariance")) { variance = cfg.getIntValue(); }
     if (cfg.nameIs("HeelAngle")) { heelAngle = cfg.getIntValue(); }
     if (cfg.nameIs("TempUnits")) { strncpy(&tempUnits, cfg.copyValue(), 1); }
     if (cfg.nameIs("MenuScrollSpeed")) { menuDelay = cfg.getIntValue(); }
@@ -1185,12 +1271,10 @@ static bool readConfig () {
   }
   cfg.end();  //clean up
   return true;
-  
 }  //readConfig
 
-
+//This only initializes the SPI port to be able to talk to the SD card
 bool initSD() {
-  
   bool retval;
   //while (!gps.available());  //wait for a fix
   //globalFix = gps.read();
@@ -1213,6 +1297,7 @@ bool initSD() {
   return retval;
 }  //initSD
 
+//This is the callback function for the SdFat file system library so that it can properly timestamp files it modifies and creates
 void dateTime(uint16_t* date, uint16_t* time) {
   byte localDay;
   uint8_t localHour;
@@ -1221,12 +1306,10 @@ void dateTime(uint16_t* date, uint16_t* time) {
     
   *date = FAT_DATE(globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay);
   *time = FAT_TIME(localHour, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
-  
 }
 
-//these read functions should be cleaned up later
+//these read functions should be cleaned up later they were just copied from one of the SdFat libraries and are more complex than probably necessary
 int csvReadText(SdFile* file, char* str, size_t size, char delim) {
-  
   char ch;
   int rtn;
   size_t n = 0;
@@ -1259,7 +1342,6 @@ int csvReadText(SdFile* file, char* str, size_t size, char delim) {
   }
   str[n] = '\0';
   return rtn;
-  
 }  //csvReadText
 
 int csvReadUint32(SdFile* file, uint32_t* num, char delim) {
@@ -1271,7 +1353,6 @@ int csvReadUint32(SdFile* file, uint32_t* num, char delim) {
   if (buf == ptr) return -3;
   while(isspace(*ptr)) ptr++;
   return *ptr == 0 ? rtn : -4;
-  
 }
 
 int csvReadUint16(SdFile* file, uint16_t* num, char delim) {
@@ -1281,7 +1362,6 @@ int csvReadUint16(SdFile* file, uint16_t* num, char delim) {
   if (tmp > UINT_MAX) return -5;
   *num = tmp;
   return rtn;
-  
 }
 
 int csvReadInt32(SdFile* file, int32_t* num, char delim) {
@@ -1293,7 +1373,6 @@ int csvReadInt32(SdFile* file, int32_t* num, char delim) {
   if (buf == ptr) return -3;
   while(isspace(*ptr)) ptr++;
   return *ptr == 0 ? rtn : -4;
-  
 }
 
 int csvReadInt16(SdFile* file, int16_t* num, char delim) {
@@ -1303,10 +1382,10 @@ int csvReadInt16(SdFile* file, int16_t* num, char delim) {
   if (tmp < INT_MIN || tmp > INT_MAX) return -5;
   *num = tmp;
   return tmp;
-  
 }
 
 //////////////////////////////////////////////////////Timer Counter Configuration///////////////////////////////////////////////////
+//configures the timer counter to allow for a slow tick to use if/when the wind gets so low the anemometer interrupts stop
 void tcConfigure(int sampleRate)
 {
   // Enable GCLK for TCC2 and TC5 (timer counter input clock)
@@ -1350,6 +1429,7 @@ void tcDisable()
 }
 
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
+//This returns the local hour and date based on the data from the GPS and the timeZone value set on the SD card config file.
 void getLocalTime(uint8_t *localHour, byte *localDay)
 {
   int localHourTemp;
@@ -1364,6 +1444,7 @@ void getLocalTime(uint8_t *localHour, byte *localDay)
   }
 }
 
+//this is an endless loop that fetches data from the GPS and returns when you have a valid location date and time.
 static void waitForFix()
 {
   #ifdef debug
@@ -1381,8 +1462,9 @@ static void waitForFix()
     }
 
     // Slowly flash the LED until we get a fix
-    if ((uint16_t) millis() - lastToggle > 500) {
-      lastToggle += 500;
+    if ((uint16_t) millis() - lastToggle > 1000) {
+      lastToggle += 1000;
+      scrollString( "WAITING FOR GPS FIX\0", 150 );
       #ifdef debug
         Serial.write( '.' );
       #endif
@@ -1395,9 +1477,9 @@ static void waitForFix()
 
 } // waitForFix
 
+//Creates folder for the date and a GPX file for the time when the function was called.  
 void startLogFile()
-{
-  
+{ 
   uint8_t localHour;
   byte localDay;
 
@@ -1439,7 +1521,7 @@ void startLogFile()
   
   gpsLog.print(F(
                   "<?xml version=\"1.0\" encoding=\"ISO-8859-1\" standalone=\"yes\"?>\r\n"
-                  "<gpx version=\"1.1\" creator=\"BTHGPSLogger\" xmlns=\"http://www.topografix.com/GPX/1/1\" \r\n"
+                  "<gpx version=\"1.1\" creator=\"BTHWindInstrument\" xmlns=\"http://www.topografix.com/GPX/1/1\" \r\n"
                   "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\r\n"
                   "xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd\">\r\n"
                   "<trk>\r\n\t<name>")); gpsLog.print(trackName); gpsLog.print(F("</name>\r\n\t<trkseg>\r\n"));  //heading of gpx file
@@ -1447,6 +1529,7 @@ void startLogFile()
   gpsLog.close();
 } // startgpsLog
 
+//Snags the values from the GPS and or other locations and updates the GPX log with a new track segment
 static void WriteGPXLog()
 { 
   // Log the fix information if we have a location and time
