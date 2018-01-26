@@ -431,7 +431,9 @@ void loop() {
   static sensors_event_t compEvent;
   static uint8_t compTimer;
   static bool GPXLogStarted = false;
-  uint32_t speedAccum, sinAccum, cosAccum = 0;
+  static uint32_t speedAccum;
+  static int32_t sinAccum, cosAccum;
+  static uint16_t AvWindDir;
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -515,22 +517,34 @@ switch(curMode)
         //Reading the file in
         //only read the file in on first entry to the menu entry
         
-        uint16_t i, j, k, count = 0;
+        uint16_t i = 0, count = 0;
+        int16_t j = 0, k = 0;
         
+        speedAccum = 0;
+        sinAccum = 0;
+        cosAccum = 0;
+        count = 0;
         if(windStats.open("WINDSTAT.LOG", O_READ))
         { 
           while (windStats.available()) {
             csvReadUint16(&windStats, &i, ',');  //read off the speed
+            //cout << "spd[" << count << "]:" << i;
             speedAccum += i;
-            csvReadUint16(&windStats, &j, ',');  //read off the sin component of the wind direction
+            csvReadInt16(&windStats, &j, ',');  //read off the sin component of the wind direction
+            //cout << " sin[" << count << "]:" << j;
             sinAccum += j;
-            csvReadUint16(&windStats, &k,',');   //read off the cos component of the wind direction
+            csvReadInt16(&windStats, &k,',');   //read off the cos component of the wind direction
+            //cout << " cos[" << count << "]:" << k << endl;
             cosAccum += k;
             count++;
           }
           speedAccum /= count;
           sinAccum /= count;
           cosAccum /= count;
+          //cout << "spdAcc:" << speedAccum << " sinAcc:" << sinAccum << " cosAcc:" << cosAccum << endl;
+          //cout << int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360 << endl;
+          AvWindDir = int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360;
+
         }
         windStats.close();
         tempTimer = millis();
@@ -541,38 +555,38 @@ switch(curMode)
       if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
         displayString("STRT");
       }
-      if(millis() > tempTimer+1000 && millis() < tempTimer+3000) {
+      else if(millis() > tempTimer+1000 && millis() < tempTimer+3000) {
         char temp[5];
         sprintf(temp, "%02u%02u", startHours, startMinutes);
         displayString(temp);
       }
-      if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
+      else if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
         displayString("END ");
       }
-      if(millis() > tempTimer+4000 && millis() < tempTimer+6000) {
+      else if(millis() > tempTimer+4000 && millis() < tempTimer+6000) {
         char temp[5];
         sprintf(temp, "%02u%02u", curHours, curMinutes);
         displayString(temp);
       }
-      if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {  
+      else if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {  
         displayString("AVG ");
       }
-      if(millis() > tempTimer+7000 && millis() < tempTimer+9000) {
+      else if(millis() > tempTimer+7000 && millis() < tempTimer+9000) {
         displayIntFloat(speedAccum, '\0');
       }
-      if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {
+      else if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {
         displayString("MAX ");
       }
-      if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
+      else if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
         displayIntFloat(windMax, '\0');
       }
-      if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
+      else if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
         displayString("AvWD");
       }
-      if(millis() > tempTimer+13000 && millis() < tempTimer+15000) {
-        displayAngle(int(round(radToDeg(atan2(cosAccum, sinAccum))+360)) % 360, '\0');
+      else if(millis() > tempTimer+13000 && millis() < tempTimer+15000) {
+        displayAngle(AvWindDir, '\0');
       }
-      if(millis() > tempTimer+15000)
+      else if(millis() > tempTimer+15000)
         tempTimer = millis();
 
       ////////////Transition State
@@ -790,7 +804,7 @@ switch(curMode)
       int16_t sinTWD;
       int16_t cosTWD;
     };
-    static sailStats statAry[60];   //size of this buffer is about how often the log file is updated (in seconds)
+    static sailStats statAry[60];   //size of this buffer is "about" how often the log file is updated (in seconds)
 
     uint32_t accumSpeed = 0;
     int32_t accumSinTWD, accumCosTWD;
@@ -800,7 +814,7 @@ switch(curMode)
     uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);
 
     //accumulate a pile of wind speeds then average them every so often and write that value out to the SD card
-    if(millis() > logTimer+1000) {
+    if(millis() > logTimer+1000) {   //capture a new data point once per second
       if(globalFix.valid.speed) {
         _SOG_ = globalFix.speed() * 100;   //get GPS speeed
       }
@@ -816,14 +830,14 @@ switch(curMode)
         bno.getCalibration(&system, &gyro, &accel, &mag);
         if(mag > 0) {   //if the compass is within calibaration
           //variance added to compass heading becasue its magnetic referenced and we want wind true referenced.
-          _COG_ = round(compEvent.orientation.x) + variance;  //don't need to check for ==360 rounding errors here because the math works out the same
+          _COG_ = int(round(compEvent.orientation.x) + variance + 360) % 360;  //don't need to check for ==360 rounding errors here because the math works out the same
         }
         else {
           //not adding variance because GPS heading is true referenced
           _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
         }
       }
-      cout << "SOG: " << _SOG_ << " COG: " << _COG_ << endl;
+      //cout << "SOG: " << _SOG_ << " COG: " << _COG_ << endl;
       
       if(i_log < elements)
       {
@@ -908,9 +922,6 @@ switch(curMode)
     }
   #endif
   
-  //temporary fake wind datum for debugging.
-  //Peet.processWirelessData(500, 330);
-
   //cout << F("Free Mem: ") << freeRam() << endl;
   
 }  //loop
