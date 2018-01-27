@@ -25,6 +25,8 @@
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
+#define batteryLogInterval 600000  //every 10 minutes
+
 //#define RGB
 #define RGBW              //These defines will change the instantiation of the LED ring and the color table.
 
@@ -107,6 +109,7 @@ SdFile logfile;
 SdFile windStats;
 SdFile compCal;
 SdFile gpsLog;
+SdFile battFile;
 
 ArduinoOutStream cout(Serial);
 
@@ -430,6 +433,7 @@ void loop() {
   static uint16_t battVoltage;
   static sensors_event_t compEvent;
   static uint8_t compTimer;
+  static uint32_t battTimer;
   static bool GPXLogStarted = false;
   static uint32_t speedAccum;
   static int32_t sinAccum, cosAccum;
@@ -440,8 +444,25 @@ void loop() {
   strip.setBrightness(map(w,0,37889,5,255));
   strip.show();
 
+  //Log battery voltage to a CSV file for graphing to understand how well the masthead unit's solar setup is working
+  if(millis() > battTimer + batteryLogInterval)
+  {
+    uint8_t localHour;
+    byte localDay;
+    getLocalTime(&localHour, &localDay);
+    char date1[22];
+    battFile.open("/!CONFIG/BATTERY.CSV", O_WRITE | O_CREAT | O_APPEND);
+    sprintf(date1, "%4d-%02d-%02d %02d:%02d", globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay, localHour, globalFix.dateTime.minutes);
+    battFile.print(date1); battFile.print(F(", ")); battFile.println(battVoltage);
+    battFile.close();
+    #ifdef debug
+      cout << "Printing Battery File " << date1 << ',' << battVoltage << endl;
+    #endif
+    battTimer = millis();
+  }
+
   //Determine if we're over heeling
-  if(millis() > compTimer + 50) {   //only read compass and heel information every 50mS (20Hz)
+  if(millis() > compTimer + 50) {   //only read compass and heel information every 50mS (20Hz) because it doesn't update any faster than that
     bno.getEvent(&compEvent);
     curHeelAngle = abs(compEvent.orientation.y);
     compTimer = millis();
@@ -905,7 +926,7 @@ switch(curMode)
         }
         else {
           #ifdef debug
-            cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+            //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
           #endif
           strcpy((char*)data, "A");
           memcpy(&spd, &buf, 2);
@@ -913,6 +934,16 @@ switch(curMode)
           memcpy(&battVoltage, &buf[4], 2);
           memcpy(&messageCount, &buf[6], 1);
           #ifdef debug
+            static uint8_t lastMessage;
+            static uint16_t packetsLost = 0;
+            static uint32_t packetsReceived = 0;
+            if(messageCount != uint8_t(lastMessage + 1)) {
+              cout << "Packet lost!!!!!!" << endl << endl;
+              cout << "Packet Loss: " << double(packetsLost) / double(packetsReceived) * 100.0 << "%" << endl;
+              lastMessage = messageCount;
+            }
+            ++packetsReceived;
+            lastMessage = messageCount;
             cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
           #endif
           Peet.processWirelessData(spd, dir);
