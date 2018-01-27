@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
+#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -883,7 +883,7 @@ switch(curMode)
     if(wndSpd > windMax) { windMax = wndSpd; }
   }
 
-  //check for radio messages
+  //handle radio traffic
   #ifdef LoRaRadioPresent 
     if (rf95.available())
     {
@@ -895,6 +895,7 @@ switch(curMode)
       {
         uint16_t spd;
         int16_t dir;
+        uint8_t messageCount;
 
         if(stricmp((char*)buf,"McFly") == 0) {
           strcpy((char*)data, "HiBiff");
@@ -910,13 +911,14 @@ switch(curMode)
           memcpy(&spd, &buf, 2);
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
+          memcpy(&messageCount, &buf[6], 1);
           #ifdef debug
-            cout << spd << " " << dir << " " << battVoltage << endl;
+            cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
           #endif
           Peet.processWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit response
-        //rf95.waitPacketSent();
+        rf95.waitPacketSent();
       }
       else {
         #ifdef debug
