@@ -1255,16 +1255,16 @@ static bool readConfig () {
     else {
       logfile.print(F("#############################################################################################\n"));
       logfile.print(F("# BTHWindInstrument v0.1 Configuration by Brett Howard\n"));
-      logfile.print(F("# BowOffset: Used to correct for the difference between anemometer North and your Bow\n"));
-      logfile.print(F("# MagVariance: Set to zero to give magnetic readings or adjusted if you want true.\n"));
+      logfile.print(F("# BowOffset: Used to correct for the difference between anemometer north and your Bow\n"));
+      logfile.print(F("# MagVariance: Magnetic variance between true and magnetic north\n"));
       logfile.print(F("# HeelAngle: The angle at which you want to switch to displaying a digital heel angle (0 disables)\n"));
       logfile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
       logfile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
-      logfile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the speed data)\n"));
-      logfile.print(F("# WindUpdateRate: Delay between display updates for wind speed modes.\n"));
+      logfile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the wind speed data)\n"));
+      logfile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
       logfile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
       logfile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
-      logfile.print(F("# Timezone: Timezone needed to properly timestamp files\n"));
+      logfile.print(F("# Timezone: Timezone needed to properly timestamp files and report sail start/stop times\n"));
       logfile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
       logfile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
       logfile.print(F("#    Setting the BaroRefAlt to -1 will tell the unit to use the GPS altitude for the calulation\n"));
