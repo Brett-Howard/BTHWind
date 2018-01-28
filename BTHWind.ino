@@ -1288,7 +1288,11 @@ static bool readConfig () {
       logfile.close();
       blip(GREEN_LED_PIN, 5, 200);
     }
-    if(!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) { Serial.println(F("Failed to open the newly created config")); failBlink(); }  //open the new file to read in the vals
+    //open the new file to read in the vals
+    if(!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) { 
+      Serial.println(F("Failed to open the newly created config")); 
+      failBlink(); 
+    }  
   }
 
   //Fetch Configuration Values
