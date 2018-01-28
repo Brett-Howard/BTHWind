@@ -1256,7 +1256,7 @@ static bool readConfig () {
       logfile.print(F("#############################################################################################\n"));
       logfile.print(F("# BTHWindInstrument v0.1 Configuration by Brett Howard\n"));
       logfile.print(F("# BowOffset: Used to correct for the difference between anemometer north and your Bow\n"));
-      logfile.print(F("# MagVariance: Magnetic variance between true and magnetic north\n"));
+      logfile.print(F("# MagVariance: Magnetic variance between true and magnetic north (East = Negative)\n"));
       logfile.print(F("# HeelAngle: The angle at which you want to switch to displaying a digital heel angle (0 disables)\n"));
       logfile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
       logfile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
