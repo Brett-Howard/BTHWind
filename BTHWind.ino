@@ -14,6 +14,7 @@
 #include <GPSport.h>                    //GPS Support
 #include <RH_RF95.h>                    //LoRa Radio support
 #include <RHReliableDatagram.h>         //Retransmission and ACK/NAK protocol
+#include "wiring_private.h"             //Allows calling of the pinPeripheral function to configure extera SERCOM ports
 
 //I2C Address Information (just to make sure there are no collisions)
 //BNO055 - 28h or 29h
@@ -121,6 +122,7 @@ SparkFun_APDS9960 apds = SparkFun_APDS9960();
 #ifdef LoRaRadioPresent
   RH_RF95 rf95(RFM95_CS, RFM95_INT);
 #endif
+Uart Serial2(&sercom4, A2, A1, SERCOM_RX_PAD_1, UART_TX_PAD_0);  //additional UART port to be used for transmission of NMEA
 
 static NMEAGPS  gps;
 static gps_fix globalFix;
@@ -165,11 +167,12 @@ void setup() {
   digitalWrite(RFM95_CS, HIGH);
   digitalWrite(SD_CHIP_SEL, HIGH);
 
-
   //setup radio pins
   pinMode(RFM95_RST, OUTPUT);
   digitalWrite(RFM95_RST, HIGH);
 
+  pinPeripheral(A1, PIO_SERCOM);    //Transmit Pin for external NMEA
+  pinPeripheral(A2, PIO_SERCOM);    //Receive Pin for external NMEA
 
   strip.begin();
   strip.clear();
@@ -438,6 +441,8 @@ void loop() {
   static uint32_t speedAccum;
   static int32_t sinAccum, cosAccum;
   static uint16_t AvWindDir;
+
+  Serial2.println("Hello");
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -1631,4 +1636,10 @@ static void WriteGPXLog()
     while(!gpsLog.close());
     blip(RED_LED_PIN, 1, 20);
   }
+}
+
+///////////////////////////////////////////Additional Serial Port Support////////////////////////////////////////////////
+void SERCOM4_Handler()
+{
+  Serial2.IrqHandler();
 }
