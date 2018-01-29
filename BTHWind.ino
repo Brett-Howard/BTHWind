@@ -13,7 +13,6 @@
 #include <NMEAGPS.h>                    //GPS Support
 #include <GPSport.h>                    //GPS Support
 #include <RH_RF95.h>                    //LoRa Radio support
-#include <RHReliableDatagram.h>         //Retransmission and ACK/NAK protocol
 
 //I2C Address Information (just to make sure there are no collisions)
 //BNO055 - 28h or 29h
