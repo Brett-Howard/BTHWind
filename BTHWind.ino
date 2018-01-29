@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug             //comment this out to not depend on USB uart.
+//#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -926,7 +926,7 @@ switch(curMode)
         }
         else {
           #ifdef debug
-            //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
+            cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
           #endif
           strcpy((char*)data, "A");
           memcpy(&spd, &buf, 2);
@@ -939,7 +939,7 @@ switch(curMode)
             static uint32_t packetsReceived = 0;
             if(messageCount != uint8_t(lastMessage + 1)) {
               cout << "Packet lost!!!!!!" << endl << endl;
-              cout << "Packet Loss: " << double(packetsLost) / double(packetsReceived) * 100.0 << "%" << endl;
+              cout << "Packet Loss: "; Serial.print(double(packetsLost) / double(packetsReceived) * 100.0, 6); Serial.println("%");
               lastMessage = messageCount;
             }
             ++packetsReceived;
