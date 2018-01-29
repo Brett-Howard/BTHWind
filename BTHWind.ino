@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug             //comment this out to not depend on USB uart.
+//#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
