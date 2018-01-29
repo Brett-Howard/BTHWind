@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
+#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -232,7 +232,7 @@ void setup() {
   gps.send_P( &gpsPort, F("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC & GGA  (need GGA for Altitude, Sat Count and Hdop)
   SdFile::dateTimeCallback(dateTime);  //register date time callback for file system
 
-  waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
+  //waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
 
 //////////////////////////////////////////////////////Setup LoRa Radio//////////////////////////////////////////////////////
   #ifdef LoRaRadioPresent
@@ -280,7 +280,7 @@ void setup() {
     #ifdef debug
       Serial.println("BNO055 initialization failed");
     #endif
-    failBlink();
+    //failBlink();
   }
   #ifdef debug
     cout << "BNO055 IMU Initialized" << endl;
@@ -405,7 +405,7 @@ void setup() {
   strip.setBrightness(map(w,0,37889,5,255));  //set the brightness for the power up sequence so it doesn't change after powerup.
   animateRedGreenWipe(60);  //pretty startup animation
 
-  while(!gps.available())
+  /*while(!gps.available())
     if(Serial1.available())
       gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
     
@@ -414,14 +414,14 @@ void setup() {
   getLocalTime(&startHours, &startDay);
   startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
   curHours = startHours;
-  curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
+  curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately*/
 }
 
 void displayIntFloat(int, char);  //compiler wants this function and only this one listed here for some reason.
 volatile bool gestureSensed = false;
 
 void loop() {
-  static Mode curMode = AppWind;
+  static Mode curMode = MastBatt;
   static Mode prevMode;
   uint8_t gesture; 
   static uint16_t w,wndSpd,windMax = 0;
