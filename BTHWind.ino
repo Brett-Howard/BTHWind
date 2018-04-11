@@ -610,16 +610,16 @@ switch(curMode)
       else if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
         displayIntFloat(speedAccum, '\0');
       }
-      else if(millis() > tempTimer+10000 && millis() < tempTimer+11000) {
+      else if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
         displayString("MAX ");
       }
-      else if(millis() > tempTimer+11000 && millis() < tempTimer+13000) {
+      else if(millis() > tempTimer+13000 && millis() < tempTimer+15000) {
         displayIntFloat(windMax, '\0');
       }
-      else if(millis() > tempTimer+13000 && millis() < tempTimer+14000) {
+      else if(millis() > tempTimer+15000 && millis() < tempTimer+16000) {
         displayString("AvWD");
       }
-      else if(millis() > tempTimer+14000 && millis() < tempTimer+16000) {
+      else if(millis() > tempTimer+16000 && millis() < tempTimer+18000) {
         displayAngle(AvWindDir, '\0');
       }
       else if(millis() > tempTimer+15000)
