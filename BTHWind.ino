@@ -220,6 +220,7 @@ void setup() {
     #endif
   }
   apds.setGestureGain(GGAIN_1X);      //seems odd but the lowest gain setting works best
+  //apds.enableProximitySensor(false);
 /////////////////////////////////////Setup GPS///////////////////////////////////////////////////////////////////////////
 
   if (gps.merging != NMEAGPS::EXPLICIT_MERGING)
@@ -434,7 +435,7 @@ void loop() {
   static uint8_t compTimer;
   static uint32_t battTimer;
   static bool GPXLogStarted = false;
-  static uint32_t speedAccum;
+  static uint32_t speedAccum, boatSpeedAccum;
   static int32_t sinAccum, cosAccum;
   static uint16_t AvWindDir;
 
@@ -495,7 +496,12 @@ void loop() {
         gesture = 0;  //make all gestures go away so they don't change menu status
       }
     }
-}
+  }
+
+apds.clearProximityInt();
+//reattach gesture interrupt that is detached inside the ISR
+attachInterrupt(digitalPinToInterrupt(GESTURE_INT),isrGesture, FALLING);
+
 
 //This switch is the state machine for all the menu items. 
 switch(curMode)
@@ -537,12 +543,13 @@ switch(curMode)
         //Reading the file in
         //only read the file in on first entry to the menu entry
         
-        uint16_t i = 0, count = 0;
+        uint16_t i = 0, count = 0, l = 0;
         int16_t j = 0, k = 0;
         
         speedAccum = 0;
         sinAccum = 0;
         cosAccum = 0;
+        boatSpeedAccum = 0;
         count = 0;
         if(windStats.open("WINDSTAT.LOG", O_READ))
         { 
@@ -553,14 +560,17 @@ switch(curMode)
             csvReadInt16(&windStats, &j, ',');  //read off the sin component of the wind direction
             //cout << " sin[" << count << "]:" << j;
             sinAccum += j;
-            csvReadInt16(&windStats, &k,',');   //read off the cos component of the wind direction
+            csvReadInt16(&windStats, &k, ',');   //read off the cos component of the wind direction
             //cout << " cos[" << count << "]:" << k << endl;
             cosAccum += k;
+            csvReadUint16(&windStats, &l, ',');   //read off the boat speed 
+            boatSpeedAccum += l;
             count++;
           }
           speedAccum /= count;
           sinAccum /= count;
           cosAccum /= count;
+          boatSpeedAccum /= count;
           //cout << "spdAcc:" << speedAccum << " sinAcc:" << sinAccum << " cosAcc:" << cosAccum << endl;
           //cout << int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360 << endl;
           AvWindDir = int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360;
@@ -588,22 +598,28 @@ switch(curMode)
         sprintf(temp, "%02u%02u", curHours, curMinutes);
         displayString(temp);
       }
-      else if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {  
-        displayString("AVG ");
+      else if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {
+        displayString("ASOG");
       }
       else if(millis() > tempTimer+7000 && millis() < tempTimer+9000) {
-        displayIntFloat(speedAccum, '\0');
+        displayIntFloat(boatSpeedAccum, '\0');
       }
-      else if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {
-        displayString("MAX ");
+      else if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {  
+        displayString("AVG ");
       }
       else if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
+        displayIntFloat(speedAccum, '\0');
+      }
+      else if(millis() > tempTimer+10000 && millis() < tempTimer+11000) {
+        displayString("MAX ");
+      }
+      else if(millis() > tempTimer+11000 && millis() < tempTimer+13000) {
         displayIntFloat(windMax, '\0');
       }
-      else if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
+      else if(millis() > tempTimer+13000 && millis() < tempTimer+14000) {
         displayString("AvWD");
       }
-      else if(millis() > tempTimer+13000 && millis() < tempTimer+15000) {
+      else if(millis() > tempTimer+14000 && millis() < tempTimer+16000) {
         displayAngle(AvWindDir, '\0');
       }
       else if(millis() > tempTimer+15000)
@@ -635,7 +651,7 @@ switch(curMode)
 
       _AWA = Peet.getDirection();
       
-      _SOG = 700;     //remove this later (only for testing)
+      //_SOG = 700;     //remove this later (only for testing)
       //_AWA = 88;
       //_AWS = 284;
       if(millis() > tempTimer + windUpdateRate) {
@@ -823,11 +839,13 @@ switch(curMode)
       uint16_t speed;
       int16_t sinTWD;
       int16_t cosTWD;
+      int16_t boatSpeed;
     };
     static sailStats statAry[60];   //size of this buffer is "about" how often the log file is updated (in seconds)
 
     uint32_t accumSpeed = 0;
     int32_t accumSinTWD, accumCosTWD;
+    uint32_t accumBoatSpeed = 0;
     uint16_t _SOG_, _COG_;
     
     static uint32_t logTimer = 0;
@@ -837,6 +855,7 @@ switch(curMode)
     if(millis() > logTimer+1000) {   //capture a new data point once per second
       if(globalFix.valid.speed) {
         _SOG_ = globalFix.speed() * 100;   //get GPS speeed
+        statAry[i_log].boatSpeed = _SOG_;
       }
 
       //use gps speed if traveling over 4 knot otherwise use the compass speed
@@ -875,20 +894,23 @@ switch(curMode)
         curMinutes = globalFix.dateTime.minutes;
         
         //calculate average wind speed and direction components
-        accumSpeed = accumSinTWD = accumCosTWD = 0;
+        accumSpeed = accumSinTWD = accumCosTWD = accumBoatSpeed = 0;
         for(int i = 0; i < elements; i++) {
           accumSpeed += statAry[i].speed;
           accumSinTWD += statAry[i].sinTWD;
           accumCosTWD += statAry[i].cosTWD;
+          accumBoatSpeed += statAry[i].boatSpeed;
         }
         accumSpeed /= elements;
         accumSinTWD /= elements;
         accumCosTWD /= elements;
+        accumBoatSpeed /= elements;
         
         if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
             windStats.print(accumSpeed); windStats.print(','); 
             windStats.print(accumSinTWD); windStats.print(',');
-            windStats.println(accumCosTWD);
+            windStats.print(accumCosTWD); windStats.print(',');
+            windStats.println(accumBoatSpeed);
             blip(GREEN_LED_PIN,3,20);
             newSDData = true;
             #ifdef debug
@@ -937,6 +959,7 @@ switch(curMode)
             static uint16_t packetsLost = 0;
             static uint32_t packetsReceived = 0;
             if(messageCount != uint8_t(lastMessage + 1)) {
+              ++packetsLost;
               cout << "Packet lost!!!!!!" << endl << endl;
               cout << "Packet Loss: " << double(packetsLost) / double(packetsReceived) * 100.0 << "%" << endl;
               lastMessage = messageCount;
@@ -1150,6 +1173,7 @@ void displayTemp(char units)
 #endif
 void isrGesture () {
   gestureSensed = true;
+  detachInterrupt(digitalPinToInterrupt(GESTURE_INT));  //trying this because its in the example but it doesn't seem to make any difference.
 }
 /////////////////////////////////////////////////////LED Ring Handling Functions////////////////////////////////////////////
 void animateRedGreenWipe(uint8_t wait) {
