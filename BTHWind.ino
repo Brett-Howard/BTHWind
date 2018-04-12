@@ -622,7 +622,7 @@ switch(curMode)
       else if(millis() > tempTimer+16000 && millis() < tempTimer+18000) {
         displayAngle(AvWindDir, '\0');
       }
-      else if(millis() > tempTimer+15000)
+      else if(millis() > tempTimer+18000)
         tempTimer = millis();
 
       ////////////Transition State
