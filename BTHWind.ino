@@ -141,7 +141,7 @@ char filename[23];
 bool GPXLogging;
 uint8_t startHours = 0, startMinutes = 0, curHours = 0, curMinutes = 0;
 int32_t homeLat, homeLon;
-float homeRadius;
+float homeStatRadius, homeGPSRadius;
 
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
@@ -819,7 +819,10 @@ switch(curMode)
       GPXLogStarted = true;
     }
     else if(GPXLogging) {
-      WriteGPXLog();
+      static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
+      if( (homeGPSRadius <= 0) || globalFix.location.DistanceKm( home ) > homeGPSRadius ) {  
+        WriteGPXLog();
+      }
     }
   }
 
@@ -854,7 +857,7 @@ switch(curMode)
     static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
 
     if(millis() > logTimer+1000) {   //capture a new data point "about" once per second
-      if( (homeRadius <= 0) || globalFix.location.DistanceKm( home ) > homeRadius ) {  
+      if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
         if(globalFix.valid.speed) {
           _SOG_ = globalFix.speed() * 100;   //get GPS speeed
           statAry[i_log].boatSpeed = _SOG_;
@@ -1305,7 +1308,8 @@ static bool readConfig () {
       logfile.print(F("# GPXLogging: If true the unit will log your tracks in GPX format to the SD card\n"));
       logfile.print(F("# HomeLat: Latitude of your slip in integer format\n"));
       logfile.print(F("# HomeLon: Longitude of your slip in integer format\n"));
-      logfile.print(F("# HomeRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
+      logfile.print(F("# HomeStatRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
+      logfile.print(F("# HomeRadius: Distance you must go before the GPS tracking activates (0 disables)\n"));
       logfile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
       logfile.print(F("#############################################################################################\n\n"));
 
@@ -1323,7 +1327,8 @@ static bool readConfig () {
       logfile.print(F("GPXLogging=true\n"));
       logfile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
       logfile.print(F("HomeLon=-1233155660\n"));
-      logfile.print(F("HomeRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
+      logfile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
+      logfile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
       logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       logfile.close();
       blip(GREEN_LED_PIN, 5, 200);
@@ -1352,7 +1357,8 @@ static bool readConfig () {
     if (cfg.nameIs("GPXLogging")) { GPXLogging = cfg.getBooleanValue(); }
     if (cfg.nameIs("HomeLat")) { homeLat = cfg.getIntValue(); }
     if (cfg.nameIs("HomeLon")) { homeLon = cfg.getIntValue(); }
-    if (cfg.nameIs("HomeRadius")) { homeRadius = float(cfg.getIntValue()/1000); }
+    if (cfg.nameIs("HomeStatRadius")) { homeStatRadius = float(cfg.getIntValue()/1000); }
+    if (cfg.nameIs("HomeGPSRadius")) { homeGPSRadius = float(cfg.getIntValue()/1000); }
     if (cfg.nameIs("TrackName")) { strcpy(trackName, cfg.copyValue()); }
   }
   cfg.end();  //clean up
