@@ -825,9 +825,9 @@ switch(curMode)
 
   //Calculate statistics to be used in the SAIL STATS menu
   if(Peet.available()) {        //only true when new information has been received from the anemometer object
-    wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop because its an expensive operation (right here)
+    
+    wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop when necessary because its an expensive operation (right here)
   
-
     if(wndSpd > 0 && curMode != TrueWind)  //if we have wind and aren't displaying true wind
         displayWindPixel(Peet.getDirection(), WHITE);
     else if(wndSpd == 0)      //if wind is calm
@@ -926,14 +926,13 @@ switch(curMode)
               #endif
           }
         }
-        
+      } //end of home radius checking
         i_log = 0;
-      }
-      logTimer = millis();
-    }
-    
-    if(wndSpd > windMax) { windMax = wndSpd; }
+    } //end of once per second 
+    logTimer = millis();
   }
+    
+  if(wndSpd > windMax) { windMax = wndSpd; }
 
   //handle radio traffic
   #ifdef LoRaRadioPresent 
@@ -991,8 +990,7 @@ switch(curMode)
     }
   #endif
   
-  //cout << F("Free Mem: ") << freeRam() << endl;
-  
+    //cout << F("Free Mem: ") << freeRam() << endl;
 }  //loop
 
 //////////////////////////////////////////////////////////Helper Functions//////////////////////////////////////////////////
