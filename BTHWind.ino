@@ -140,6 +140,8 @@ char trackName[20] = {0};
 char filename[23];
 bool GPXLogging;
 uint8_t startHours = 0, startMinutes = 0, curHours = 0, curMinutes = 0;
+int32_t homeLat, homeLon;
+float homeRadius;
 
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
@@ -822,7 +824,7 @@ switch(curMode)
   }
 
   //Calculate statistics to be used in the SAIL STATS menu
-  if(Peet.available()) { 
+  if(Peet.available()) {        //only true when new information has been received from the anemometer object
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop because its an expensive operation (right here)
   
 
@@ -847,17 +849,19 @@ switch(curMode)
     uint16_t _SOG_, _COG_;
     
     static uint32_t logTimer = 0;
-    uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);
-
-    //accumulate a pile of wind speeds then average them every so often and write that value out to the SD card
-    if(millis() > logTimer+1000) {   //capture a new data point once per second
+    uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);  //only done so you don't have to modify array size in two places
+   
+    if(millis() > logTimer+1000) {   //capture a new data point "about" once per second
+    
+      //first store boat speed
       if(globalFix.valid.speed) {
         _SOG_ = globalFix.speed() * 100;   //get GPS speeed
         statAry[i_log].boatSpeed = _SOG_;
       }
 
-      //use gps speed if traveling over 4 knot otherwise use the compass speed
-      if(_SOG_ > 400 && globalFix.valid.heading)
+      //Get boat heading for TWS calculations
+      //use gps speed if traveling over 2 knot otherwise use the compass speed
+      if(_SOG_ > 200 && globalFix.valid.heading)
         _COG_ = globalFix.heading();
       else {
         static uint8_t system, gyro, accel, mag;
@@ -871,20 +875,24 @@ switch(curMode)
         }
         else {
           //not adding variance because GPS heading is true referenced
-          _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
+          if(globalFix.valid.heading)
+          {
+            _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
+          }
         }
       }
-      //cout << "SOG: " << _SOG_ << " COG: " << _COG_ << endl;
       
+      //Add values into the temp stat array
       if(i_log < elements)
       {
-        //statAry[i_log].speed = wndSpd;  //incorrect because it was averaging apparent wind speed
         statAry[i_log].speed = getTWS(Peet.getDirection(), wndSpd, _SOG_);
         statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);  //10000 is to not need floats
         statAry[i_log].cosTWD = round(cos(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
         
         i_log++;
       }
+
+      //Once the temp array is full write data out to the SD card
       if(i_log == elements)
       {
         //update trip end time
@@ -892,7 +900,7 @@ switch(curMode)
         getLocalTime(&curHours, &curDay);
         curMinutes = globalFix.dateTime.minutes;
         
-        //calculate average wind speed and direction components
+        //calculate average wind speed and direction components (direction components are needed to work out average wind direction for the trip)
         accumSpeed = accumSinTWD = accumCosTWD = accumBoatSpeed = 0;
         for(int i = 0; i < elements; i++) {
           accumSpeed += statAry[i].speed;
@@ -905,17 +913,25 @@ switch(curMode)
         accumCosTWD /= elements;
         accumBoatSpeed /= elements;
         
-        if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) {
-            windStats.print(accumSpeed); windStats.print(','); 
-            windStats.print(accumSinTWD); windStats.print(',');
-            windStats.print(accumCosTWD); windStats.print(',');
-            windStats.println(accumBoatSpeed);
-            blip(GREEN_LED_PIN,3,20);
-            newSDData = true;
-            #ifdef debug
-              cout << F("Avg Written. Time: ") << millis() << F(" Values: ") << accumSpeed << ',' << accumSinTWD << ',' << accumCosTWD << endl;
-            #endif
+        NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
+
+        if( (homeRadius <= 0) || globalFix.location.DistanceKm( home ) > homeRadius ) {  //if homeRadius <= 0 the distance check is disabled.    
+          //If we get here we're far enough from the marina to log this data (checks if we actually sailing or just BSing at the dock)
+          //This check was added to make it so that you don't have to rush to get the data out of the stats before they are 
+          //corrupted with light winds and slow or no boat speed.
+          if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) { //if new create file or if already open continue.
+              windStats.print(accumSpeed); windStats.print(',');
+              windStats.print(accumSinTWD); windStats.print(',');
+              windStats.print(accumCosTWD); windStats.print(',');
+              windStats.println(accumBoatSpeed);
+              blip(GREEN_LED_PIN,3,20);                    //green light blinks to inform stat file update
+              newSDData = true;                            //flag to inform the sailStats state to re-parse the CSV file and update the displayed information.
+              #ifdef debug
+                cout << F("Avg Written. Time: ") << millis() << F(" Values: ") << accumSpeed << ',' << accumSinTWD << ',' << accumCosTWD << endl;
+              #endif
+          }
         }
+        
         i_log = 0;
       }
       logTimer = millis();
@@ -1312,8 +1328,8 @@ static bool readConfig () {
       logfile.print(F("GPSUpdateRate=1000\n"));
       logfile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
       logfile.print(F("GPXLogging=true\n"));
-      logfile.print(F("HomeLat=44118905\n"));       //location of slip B32 at Richardson Park
-      logfile.print(F("HomeLon=-123315563\n"));
+      logfile.print(F("HomeLat=44118907\n"));       //location of slip B32 at Richardson Park Marina
+      logfile.print(F("HomeLon=-123315566\n"));
       logfile.print(F("HomeRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
       logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       logfile.close();
@@ -1341,9 +1357,9 @@ static bool readConfig () {
     if (cfg.nameIs("GPSUpdateRate")) { delayBetweenFixes = cfg.getIntValue(); }
     if (cfg.nameIs("BaroRefAlt")) { baroRefAlt = cfg.getIntValue(); }
     if (cfg.nameIs("GPXLogging")) { GPXLogging = cfg.getBooleanValue(); }
-    if (cfg.nameIs("HomeLat")) { GPXLogging = cfg.getIntValue(); }
-    if (cfg.nameIs("HomeLon")) { GPXLogging = cfg.getIntValue(); }
-    if (cfg.nameIs("HomeRadius")) { GPXLogging = cfg.getIntValue(); }
+    if (cfg.nameIs("HomeLat")) { homeLat = cfg.getIntValue(); }
+    if (cfg.nameIs("HomeLon")) { homeLon = cfg.getIntValue(); }
+    if (cfg.nameIs("HomeRadius")) { homeRadius = float(cfg.getIntValue()/1000); }
     if (cfg.nameIs("TrackName")) { strcpy(trackName, cfg.copyValue()); }
   }
   cfg.end();  //clean up
