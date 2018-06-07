@@ -421,7 +421,7 @@ void displayIntFloat(int, char);  //compiler wants this function and only this o
 volatile bool gestureSensed = false;
 
 void loop() {
-  static Mode curMode = AppWind;
+  static Mode curMode = TrueWind;
   static Mode prevMode;
   uint8_t gesture; 
   static uint16_t w,wndSpd,windMax = 0;
@@ -525,8 +525,51 @@ switch(curMode)
       #endif
       //////Transition state
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-      else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-      else if(gesture == DIR_UP) { curMode = TrueWind; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
+      else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
+      break;
+
+      case TrueWind:
+      if(firstEntry) {
+        scrollString("TRUE WIND\0", menuDelay);
+        firstEntry = false;
+      }
+      //////////////do TrueWind
+      uint16_t _SOG;
+      uint16_t _AWS;
+      uint16_t _AWA;
+      uint16_t _TWS;
+
+      //if(gps.available())
+        //globalFix = gps.read();    //this not needed because of the global read below
+      if (globalFix.valid.speed) {
+        _SOG = globalFix.speed()*100;
+      }
+
+      _AWA = Peet.getDirection();
+      
+      //_SOG = 700;     //remove this later (only for testing)
+      //_AWA = 88;
+      //_AWS = 284;
+      if(millis() > tempTimer + windUpdateRate) {
+        #ifdef noisyDebug
+          cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
+        #endif
+        
+        if(wndSpd > 0) {
+          displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
+          displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
+        }
+        else { displayString("CALM"); }
+
+        tempTimer = millis();
+      }   
+      
+      //////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = AppWind; firstEntry = true; }
       else if(gesture == DIR_DOWN) { curMode = WindStats; firstEntry = true; }
       break;
   
@@ -627,55 +670,10 @@ switch(curMode)
 
       ////////////Transition State
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-      else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-      else if(gesture == DIR_UP) { curMode = AppWind; firstEntry = true; }
-      else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
-      break;
-  
-  
-  case TrueWind:
-      if(firstEntry) {
-        scrollString("TRUE WIND\0", menuDelay);
-        firstEntry = false;
-      }
-      //////////////do TrueWind
-      uint16_t _SOG;
-      uint16_t _AWS;
-      uint16_t _AWA;
-
-      //if(gps.available())
-        //globalFix = gps.read();    //this not needed because of the global read below
-      if (globalFix.valid.speed) {
-        _SOG = globalFix.speed()*100;
-      }
-
-      _AWA = Peet.getDirection();
-      
-      //_SOG = 700;     //remove this later (only for testing)
-      //_AWA = 88;
-      //_AWS = 284;
-      if(millis() > tempTimer + windUpdateRate) {
-        #ifdef noisyDebug
-          cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
-        #endif
-        displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
-        #ifdef noisyDebug
-          cout << getTWS(_AWA, wndSpd, _SOG) << endl;
-        #endif
-        displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
-        #ifdef noisyDebug
-          cout << getTWA(_AWA, wndSpd, _SOG) << endl;
-        #endif
-        tempTimer = millis();
-      }   
-      
-      //////////////Transition State
-      if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
-      else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
-      else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = TrueWind; firstEntry = true; }
       else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
       break;
-  
   
   case CompHead:
       if(firstEntry) {
@@ -701,8 +699,8 @@ switch(curMode)
       }
 
       ///////////Transition State
-      if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
-      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = MastBatt; firstEntry = true; }
       else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = COG; firstEntry = true; }
       break; 
   
@@ -719,8 +717,8 @@ switch(curMode)
         displayAngle(uint16_t(globalFix.heading()), 'T');
       }
       //////////////////Transition State
-      if(gesture == DIR_LEFT) { curMode = AppWind; firstEntry = true; }
-      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = MastBatt; firstEntry = true; }
       else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = CompHead; firstEntry = true; }
       break; 
   
@@ -738,8 +736,8 @@ switch(curMode)
       }
 
       //////////////////Transition State
-      if(gesture == DIR_LEFT) { curMode = CompHead; firstEntry = true; }
-      else if(gesture == DIR_RIGHT) { curMode = MastBatt; firstEntry = true; }
+      if(gesture == DIR_LEFT) { curMode = TrueWind; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = CompHead; firstEntry = true; }
       else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = SOG; firstEntry = true; }
       break;
   
@@ -756,7 +754,7 @@ switch(curMode)
       } 
       ////////////////Transition State
       if(gesture == DIR_LEFT) { curMode = Temp; firstEntry = true; }
-      else if(gesture == DIR_RIGHT) { curMode = AppWind; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = TrueWind; firstEntry = true; }
       else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Baro; firstEntry = true; }
       break;
   
@@ -831,7 +829,7 @@ switch(curMode)
     if(wndSpd > 0 && curMode != TrueWind)  //if we have wind and aren't displaying true wind
         displayWindPixel(Peet.getDirection(), WHITE);
     else if(wndSpd == 0)      //if wind is calm
-      restoreBackground(); 
+      restoreBackground();    //this should turn the pixel off in Apparent and True wind modes.
 
     static uint16_t i_log = 0;
 
