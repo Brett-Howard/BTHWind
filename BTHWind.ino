@@ -1294,6 +1294,9 @@ static bool readConfig () {
       logfile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
       logfile.print(F("#    Setting the BaroRefAlt to -1 will tell the unit to use the GPS altitude for the calulation\n"));
       logfile.print(F("# GPXLogging: If true the unit will log your tracks in GPX format to the SD card\n"));
+      logfile.print(F("# HomeLat: Latitude of your slip in integer format\n"));
+      logfile.print(F("# HomeLon: Longitude of your slip in integer format\n"));
+      logfile.print(F("# HomeRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
       logfile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
       logfile.print(F("#############################################################################################\n\n"));
 
@@ -1309,7 +1312,10 @@ static bool readConfig () {
       logfile.print(F("GPSUpdateRate=1000\n"));
       logfile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
       logfile.print(F("GPXLogging=true\n"));
-      logfile.print(F("TrackName=Uncomfortably Level\n"));
+      logfile.print(F("HomeLat=44118905\n"));       //location of slip B32 at Richardson Park
+      logfile.print(F("HomeLon=-123315563\n"));
+      logfile.print(F("HomeRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
+      logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       logfile.close();
       blip(GREEN_LED_PIN, 5, 200);
     }
@@ -1335,6 +1341,9 @@ static bool readConfig () {
     if (cfg.nameIs("GPSUpdateRate")) { delayBetweenFixes = cfg.getIntValue(); }
     if (cfg.nameIs("BaroRefAlt")) { baroRefAlt = cfg.getIntValue(); }
     if (cfg.nameIs("GPXLogging")) { GPXLogging = cfg.getBooleanValue(); }
+    if (cfg.nameIs("HomeLat")) { GPXLogging = cfg.getIntValue(); }
+    if (cfg.nameIs("HomeLon")) { GPXLogging = cfg.getIntValue(); }
+    if (cfg.nameIs("HomeRadius")) { GPXLogging = cfg.getIntValue(); }
     if (cfg.nameIs("TrackName")) { strcpy(trackName, cfg.copyValue()); }
   }
   cfg.end();  //clean up
