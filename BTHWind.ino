@@ -924,8 +924,8 @@ switch(curMode)
               #ifdef debug
                 cout << F("Avg Written. Time: ") << millis() << F(" Values: ") << accumSpeed << ',' << accumSinTWD << ',' << accumCosTWD << endl;
               #endif
-          }
-        }
+          } //end of file I/O for sail stats
+        } //end of stats accumulation after temp array has become full
       } //end of home radius checking
         i_log = 0;
     } //end of once per second 
