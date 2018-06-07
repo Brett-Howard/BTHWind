@@ -825,13 +825,13 @@ switch(curMode)
 
   //Calculate statistics to be used in the SAIL STATS menu
   if(Peet.available()) { 
-    wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop (right here)
+    wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop because its an expensive operation (right here)
   
 
-    if(wndSpd > 0 && curMode != TrueWind)
+    if(wndSpd > 0 && curMode != TrueWind)  //if we have wind and aren't displaying true wind
         displayWindPixel(Peet.getDirection(), WHITE);
-    else if(wndSpd == 0)
-      restoreBackground();
+    else if(wndSpd == 0)      //if wind is calm
+      restoreBackground(); 
 
     static uint16_t i_log = 0;
 
@@ -880,7 +880,8 @@ switch(curMode)
       
       if(i_log < elements)
       {
-        statAry[i_log].speed = wndSpd;
+        //statAry[i_log].speed = wndSpd;  //incorrect because it was averaging apparent wind speed
+        statAry[i_log].speed = getTWS(Peet.getDirection(), wndSpd, _SOG_);
         statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);  //10000 is to not need floats
         statAry[i_log].cosTWD = round(cos(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
         
@@ -1000,7 +1001,10 @@ uint16_t getTWS(uint16_t AWA, uint16_t AWS, int16_t SOG)
   float _AWA = degToRad(AWA);
   float tanAlpha = sin(_AWA)/(float(AWS)/float(SOG)-cos(_AWA));
   float Alpha = atan(tanAlpha);
-  if(AWA == 0) {
+  if(SOG == 0) {
+    return AWS;
+  }
+  else if(AWA == 0) {
     return(abs(round(AWS-SOG)));
   }
   else {

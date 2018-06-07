@@ -211,7 +211,7 @@ void Anemometer::processWirelessData(uint16_t speed, int16_t direction) {
     addSpeedToList(speed);
     //add in bow offset (because mast head doesn't know about it)
     //perform wind direction filter and apply bow offset
-    int direction = ((int(direction+_bowOffset)) + 360) % 360;  //first account for bow offset (previous method broke for negative offsets)
+    direction = ((int(direction+_bowOffset)) + 360) % 360;  //first account for bow offset (previous method broke for negative offsets)
     int delta = direction - _windDirection;
     if (delta < -180)
     {
