@@ -1632,7 +1632,7 @@ static void WriteGPXLog()
 
     if (globalFix.valid.speed) {
       gpsLog.print(F("\t\t\t<speed>"));
-      gpsLog.print(globalFix.speed());
+      gpsLog.print(globalFix.speed()*0.514444);  //magic number is to convert knots to m/s);
       gpsLog.print(F("</speed>\n"));
     }
 
