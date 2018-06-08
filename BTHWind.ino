@@ -348,7 +348,7 @@ void setup() {
   }
 
   //if there is calibration data read it from the file and apply it 
-  if(compCal.open("/!CONFIG/IMUCAL.CSV", O_READ))
+  else if(compCal.open("/!CONFIG/IMUCAL.CSV", O_READ))
   {
     #ifdef debug
       cout << "Reading input from IMU calibration file" << endl;
