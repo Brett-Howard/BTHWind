@@ -947,9 +947,10 @@ switch(curMode)
                 cout << F("Avg Written. Time: ") << millis() << F(" Values: ") << accumSpeed << ',' << accumSinTWD << ',' << accumCosTWD << endl;
               #endif
           } //end of file I/O for sail stats
+          i_log = 0;
         } //end of stats accumulation after temp array has become full
       } //end of home radius checking
-        i_log = 0;
+        
     logTimer = millis();
     }  //end of once per second
   } //if Peet.available();
