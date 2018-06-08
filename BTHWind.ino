@@ -20,7 +20,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
+#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -417,11 +417,13 @@ void setup() {
       gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
     
   globalFix = gps.read();       //snag the fix.
-  uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
-  getLocalTime(&startHours, &startDay);
-  startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
-  curHours = startHours;
-  curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
+  //uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
+  
+  //getLocalTime(&startHours, &startDay);
+  //startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
+  
+  //curHours = startHours;
+  //curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
 }
 
 void displayIntFloat(int, char);  //compiler wants this function and only this one listed here for some reason.
@@ -445,6 +447,7 @@ void loop() {
   static uint32_t speedAccum, boatSpeedAccum;
   static int32_t sinAccum, cosAccum;
   static uint16_t AvWindDir;
+  static bool tripStarted = false;
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -825,7 +828,9 @@ switch(curMode)
     }
     else if(GPXLogging) {
       static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
+      cout << "distance from home is " << globalFix.location.DistanceKm( home ) << "km\n";
       if( (homeGPSRadius <= 0) || globalFix.location.DistanceKm( home ) > homeGPSRadius ) {  
+        cout << "logging gps\n";
         WriteGPXLog();
       }
     }
@@ -861,8 +866,18 @@ switch(curMode)
 
     static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
 
+    cout << "time: " << millis() << "logtimer: " << logTimer << endl;
     if(millis() > logTimer+1000) {   //capture a new data point "about" once per second
+      cout << "distance to home from stats func: " << globalFix.location.DistanceKm( home ) << endl;
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
+        cout << "logging stats\n";
+        if(!tripStarted)
+        {
+          uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
+          getLocalTime(&startHours, &startDay);
+          startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
+          tripStarted = true;
+        }
         if(globalFix.valid.speed) {
           _SOG_ = globalFix.speed() * 100;   //get GPS speeed
           statAry[i_log].boatSpeed = _SOG_;
@@ -894,6 +909,7 @@ switch(curMode)
         //Add values into the temp stat array
         if(i_log < elements)
         {
+          cout << "logging into stat array\n";
           statAry[i_log].speed = getTWS(Peet.getDirection(), wndSpd, _SOG_);
           statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);  //10000 is to not need floats
           statAry[i_log].cosTWD = round(cos(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
@@ -904,6 +920,7 @@ switch(curMode)
         //Once the temp array is full write data out to the SD card
         if(i_log == elements)
         {
+          cout << "stat array full\n";
           //update trip end time
           uint8_t curDay;
           getLocalTime(&curHours, &curDay);
@@ -1277,7 +1294,7 @@ static bool readConfig () {
   
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
-  //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
+  sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   if (!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) {
     sd.mkdir("!CONFIG");
@@ -1318,15 +1335,15 @@ static bool readConfig () {
       logfile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
       logfile.print(F("#############################################################################################\n\n"));
 
-      logfile.print(F("BowOffset=0\n"));
+      logfile.print(F("BowOffset=337\n"));
       logfile.print(F("MagVariance=15\n"));     //might be possible to support -1 here and read mag var from RMC NMEA sentence
-      logfile.print(F("HeelAngle=12\n"));
+      logfile.print(F("HeelAngle=15\n"));
       logfile.print(F("MenuScrollSpeed=150\n"));
       logfile.print(F("TempUnits=f\n"));
       logfile.print(F("SpeedMAD=5\n"));          
-      logfile.print(F("WindUpdateRate=500\n"));   //500 repaints the display at a 2Hz rate
+      logfile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate
       logfile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
-      logfile.print(F("Timezone=-8\n"));
+      logfile.print(F("Timezone=-7\n"));
       logfile.print(F("GPSUpdateRate=1000\n"));
       logfile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
       logfile.print(F("GPXLogging=true\n"));
@@ -1362,8 +1379,8 @@ static bool readConfig () {
     if (cfg.nameIs("GPXLogging")) { GPXLogging = cfg.getBooleanValue(); }
     if (cfg.nameIs("HomeLat")) { homeLat = cfg.getIntValue(); }
     if (cfg.nameIs("HomeLon")) { homeLon = cfg.getIntValue(); }
-    if (cfg.nameIs("HomeStatRadius")) { homeStatRadius = float(cfg.getIntValue()/1000); }
-    if (cfg.nameIs("HomeGPSRadius")) { homeGPSRadius = float(cfg.getIntValue()/1000); }
+    if (cfg.nameIs("HomeStatRadius")) { homeStatRadius = float(cfg.getIntValue()/1000.0); }
+    if (cfg.nameIs("HomeGPSRadius")) { homeGPSRadius = float(cfg.getIntValue()/1000.0); }
     if (cfg.nameIs("TrackName")) { strcpy(trackName, cfg.copyValue()); }
   }
   cfg.end();  //clean up
