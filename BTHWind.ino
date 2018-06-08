@@ -299,6 +299,7 @@ void setup() {
   uint8_t system, gyro, accel, mag;
   system = gyro = accel = mag = 0;
   
+  //if there isn't a IMU calibration file print status while you calibrate
   if(!sd.exists("/!CONFIG/IMUCAL.CSV")) {
     displayString("IMU?");
     while(system < 3 || gyro < 3 || accel < 3 || mag < 3) {
@@ -314,6 +315,7 @@ void setup() {
     }
   }
   
+  //now that the system is in calibration store that calibration out to the SD card
   adafruit_bno055_offsets_t offsets;
 
   bno.getSensorOffsets(offsets);
@@ -322,10 +324,12 @@ void setup() {
     displaySensorOffsets(offsets); 
   #endif
   
+
   if(!sd.exists("/!CONFIG/IMUCAL.CSV")) {
     #ifdef debug
       cout << "Compass calibration file did not exist." << endl;
     #endif
+    //write out a new calibration file
     if(compCal.open("/!CONFIG/IMUCAL.CSV", O_CREAT | O_WRITE | O_EXCL)) {
       cout << "New compass calibration file created." << endl;
       compCal.print(offsets.accel_offset_x); compCal.print(',');
@@ -343,6 +347,7 @@ void setup() {
     compCal.close(); 
   }
 
+  //if there is calibration data read it from the file and apply it 
   if(compCal.open("/!CONFIG/IMUCAL.CSV", O_READ))
   {
     #ifdef debug
