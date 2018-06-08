@@ -828,9 +828,7 @@ switch(curMode)
     }
     else if(GPXLogging) {
       static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
-      cout << "distance from home is " << globalFix.location.DistanceKm( home ) << "km\n";
       if( (homeGPSRadius <= 0) || globalFix.location.DistanceKm( home ) > homeGPSRadius ) {  
-        cout << "logging gps\n";
         WriteGPXLog();
       }
     }
@@ -866,16 +864,15 @@ switch(curMode)
 
     static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
 
-    cout << "time: " << millis() << "logtimer: " << logTimer << endl;
     if(millis() > logTimer+1000) {   //capture a new data point "about" once per second
-      cout << "distance to home from stats func: " << globalFix.location.DistanceKm( home ) << endl;
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
-        cout << "logging stats\n";
         if(!tripStarted)
         {
           uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
           getLocalTime(&startHours, &startDay);
           startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
+          curHours = startHours;
+          curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
           tripStarted = true;
         }
         if(globalFix.valid.speed) {
@@ -909,7 +906,7 @@ switch(curMode)
         //Add values into the temp stat array
         if(i_log < elements)
         {
-          cout << "logging into stat array\n";
+          cout << "logging into stat array.  Element number " << i_log << endl;
           statAry[i_log].speed = getTWS(Peet.getDirection(), wndSpd, _SOG_);
           statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);  //10000 is to not need floats
           statAry[i_log].cosTWD = round(cos(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
@@ -953,9 +950,9 @@ switch(curMode)
         } //end of stats accumulation after temp array has become full
       } //end of home radius checking
         i_log = 0;
-    } //end of once per second 
     logTimer = millis();
-  }
+    }  //end of once per second
+  } //if Peet.available();
     
   if(wndSpd > windMax) { windMax = wndSpd; }
 
