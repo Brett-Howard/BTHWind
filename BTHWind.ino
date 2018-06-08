@@ -20,7 +20,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug             //comment this out to not depend on USB uart.
+//#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -906,7 +906,6 @@ switch(curMode)
         //Add values into the temp stat array
         if(i_log < elements)
         {
-          cout << "logging into stat array.  Element number " << i_log << endl;
           statAry[i_log].speed = getTWS(Peet.getDirection(), wndSpd, _SOG_);
           statAry[i_log].sinTWD = round(sin(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);  //10000 is to not need floats
           statAry[i_log].cosTWD = round(cos(degToRad(getTWD(Peet.getDirection(), wndSpd, _SOG_, _COG_)))*10000);
@@ -917,7 +916,6 @@ switch(curMode)
         //Once the temp array is full write data out to the SD card
         if(i_log == elements)
         {
-          cout << "stat array full\n";
           //update trip end time
           uint8_t curDay;
           getLocalTime(&curHours, &curDay);
