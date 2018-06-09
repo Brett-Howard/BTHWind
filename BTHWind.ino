@@ -1374,18 +1374,18 @@ static bool readConfig () {
       logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       logfile.print(F("\n"));
       logfile.print(F("DSTName=PDT\n"));          //defaults to US Pacific
-      logfile.print(F("DSTWeek=2\n"));
-      logfile.print(F("DSTDayOfWeek=1\n"));
-      logfile.print(F("DSTMonth=3\n"));
-      logfile.print(F("DSTHour=2\n"));
-      logfile.print(F("DSTOffset=-420n"));
+      logfile.print(F("DSTWeek=2\n"));            //first
+      logfile.print(F("DSTDayOfWeek=1\n"));       //Sunday
+      logfile.print(F("DSTMonth=3\n"));           //in March
+      logfile.print(F("DSTHour=2\n"));            //at 2AM
+      logfile.print(F("DSTOffset=-420n"));        //subtract 7 hours
       logfile.print(F("\n"));
-      logfile.print(F("STName=PST\n"));
-      logfile.print(F("STWeek=2\n"));
-      logfile.print(F("STDayOfWeek=1\n"));
-      logfile.print(F("STMonth=11\n"));
-      logfile.print(F("STHour=2\n"));
-      logfile.print(F("STOffset=-480\n"));
+      logfile.print(F("STName=PST\n"));           //Pacific STD time
+      logfile.print(F("STWeek=2\n"));             //first
+      logfile.print(F("STDayOfWeek=1\n"));        //Sunday
+      logfile.print(F("STMonth=11\n"));           //in November
+      logfile.print(F("STHour=2\n"));             //at 2AM
+      logfile.print(F("STOffset=-480\n"));        //subtract 8 hours
       
       logfile.close();
       blip(GREEN_LED_PIN, 5, 200);
