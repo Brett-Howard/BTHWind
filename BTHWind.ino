@@ -1290,7 +1290,7 @@ static bool readConfig () {
   
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
-  sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
+  //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   if (!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) {
     sd.mkdir("!CONFIG");
