@@ -144,10 +144,10 @@ uint8_t startHours = 0, startMinutes = 0, curHours = 0, curMinutes = 0;
 int32_t homeLat, homeLon;
 float homeStatRadius, homeGPSRadius;
 
-//Define time zones
-TimeChangeRule usPDT = {"PDT", Second, Sun, Mar, 2, -420};    //PDT is entered on the 2nd Sunday of March at 2AM and has an offset of -7 hours (420 minutes)
-TimeChangeRule usPST = {"PST", First, Sun, Nov, 2, -480};     //PST is entered on the 1st Sunday of November at 2AM and has an offset of -8 hours (480 minutes)
-Timezone usPacific(usPDT, usPST);  //this creates a time zone compromized of the two above rulesets.  Used for local time conversions
+TimeChangeRule DST, ST;
+
+Timezone localTZ(DST,ST);  //this creates a placeholder that gets update later once the SD config file is read.  
+
 
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
@@ -394,6 +394,9 @@ void setup() {
 	  Serial.println(F("SD card configuration read successfully"));
 	#endif
   
+  //now that DST and ST are populated update timezone with the time change rules from the SD card
+  localTZ.setRules(DST, ST);
+
   //write update rate into the GPS  (has to be moved here after we've fetched the value from the config)
   char tmp[13];
   sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
@@ -1300,7 +1303,7 @@ static bool readConfig () {
   
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
-  //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
+  sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   if (!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) {
     sd.mkdir("!CONFIG");
@@ -1329,7 +1332,6 @@ static bool readConfig () {
       logfile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
       logfile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
       logfile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
-      logfile.print(F("# Timezone: Timezone needed to properly timestamp files and report sail start/stop times\n"));
       logfile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
       logfile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
       logfile.print(F("#    Setting the BaroRefAlt to -1 will tell the unit to use the GPS altitude for the calulation\n"));
@@ -1339,6 +1341,15 @@ static bool readConfig () {
       logfile.print(F("# HomeStatRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
       logfile.print(F("# HomeRadius: Distance you must go before the GPS tracking activates (0 disables)\n"));
       logfile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
+      logfile.print(F("\n"));
+      logfile.print(F("Timezone Setup:"));
+      logfile.print(F("Provide a name and configure when each rule occurs\n"));
+      logfile.print(F("For week 1=Last 2=First 3=Second 4=Third 5=Fourth\n"));
+      logfile.print(F("For day of week 1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat\n"));
+      logfile.print(F("For month 1=Jan 2=Feb 3=Mar 4=Apr 5=May 6=Jun 7=Jul 8=Aug 9=Sep 10=Oct 11=Nov 12=Dec\n"));
+      logfile.print(F("For hour input the time that the adjustment is to take place\n"));
+      logfile.print(F("For offset input the time offset in minutes\n"));
+      logfile.print(F("\n"));
       logfile.print(F("#############################################################################################\n\n"));
 
       logfile.print(F("BowOffset=337\n"));
@@ -1349,7 +1360,6 @@ static bool readConfig () {
       logfile.print(F("SpeedMAD=5\n"));          
       logfile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate
       logfile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
-      logfile.print(F("Timezone=-7\n"));
       logfile.print(F("GPSUpdateRate=1000\n"));
       logfile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
       logfile.print(F("GPXLogging=true\n"));
@@ -1358,6 +1368,21 @@ static bool readConfig () {
       logfile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
       logfile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
       logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
+      logfile.print(F("\n"));
+      logfile.print(F("DSTName=PDT\n"));
+      logfile.print(F("DSTWeek=2\n"));
+      logfile.print(F("DSTDayOfWeek=1\n"));
+      logfile.print(F("DSTMonth=3\n"));
+      logfile.print(F("DSTHour=2\n"));
+      logfile.print(F("DSTOffset=-420n"));
+      logfile.print(F("\n"));
+      logfile.print(F("STName=PST\n"));
+      logfile.print(F("STWeek=2\n"));
+      logfile.print(F("STDayOfWeek=1\n"));
+      logfile.print(F("STMonth=11\n"));
+      logfile.print(F("STHour=2\n"));
+      logfile.print(F("STOffset=-480\n"));
+      
       logfile.close();
       blip(GREEN_LED_PIN, 5, 200);
     }
@@ -1388,6 +1413,20 @@ static bool readConfig () {
     if (cfg.nameIs("HomeStatRadius")) { homeStatRadius = float(cfg.getIntValue()/1000.0); }
     if (cfg.nameIs("HomeGPSRadius")) { homeGPSRadius = float(cfg.getIntValue()/1000.0); }
     if (cfg.nameIs("TrackName")) { strcpy(trackName, cfg.copyValue()); }
+
+    if (cfg.nameIs("DSTName")) { strcpy(DST.abbrev, cfg.copyValue()); }
+    if (cfg.nameIs("DSTWeek")) { DST.week = cfg.getIntValue(); }
+    if (cfg.nameIs("DSTDayOfWeek")) { DST.dow = cfg.getIntValue(); }
+    if (cfg.nameIs("DSTMonth")) { DST.month = cfg.getIntValue(); }
+    if (cfg.nameIs("DSTHour")) { DST.hour = cfg.getIntValue(); }
+    if (cfg.nameIs("DSTOffset")) { DST.offset = cfg.getIntValue(); }
+    
+    if (cfg.nameIs("STName")) { strcpy(ST.abbrev, cfg.copyValue()); }
+    if (cfg.nameIs("STWeek")) { ST.week = cfg.getIntValue(); }
+    if (cfg.nameIs("STDayOfWeek")) { ST.dow = cfg.getIntValue(); }
+    if (cfg.nameIs("STMonth")) { ST.month = cfg.getIntValue(); }
+    if (cfg.nameIs("STHour")) { ST.hour = cfg.getIntValue(); }
+    if (cfg.nameIs("STOffset")) { ST.offset = cfg.getIntValue(); }
   }
   cfg.end();  //clean up
   return true;
@@ -1556,7 +1595,7 @@ bool getLocalTime(uint8_t *localHour, byte *localDay)
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
     utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
     
-    time_t local = usPacific.toLocal(utc);              //returns time_t with current local time.
+    time_t local = localTZ.toLocal(utc);              //returns time_t with current local time.
     #ifdef debug
       cout << "Current Local Time is: " << hour(local) << ":" << minute(local) << ":" << second(local) << endl;
     #endif
@@ -1584,7 +1623,7 @@ time_t getLocalTime()
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
     utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
 
-    time_t local = usPacific.toLocal(utc);              //returns time_t with current local time.
+    time_t local = localTZ.toLocal(utc);              //returns time_t with current local time.
     #ifdef debug
       cout << "Current Local Time is: " << hour(local) << ":" << minute(local) << ":" << second(local) << endl;
     #endif
