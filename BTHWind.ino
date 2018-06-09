@@ -21,7 +21,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
+#define debug             //comment this out to not depend on USB uart.
 //#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
 #define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
 
@@ -395,6 +395,10 @@ void setup() {
 	#endif
   
   //now that DST and ST are populated update timezone with the time change rules from the SD card
+  #ifdef debug
+    cout << "TZRuleValue DST: " << DST.abbrev << " " << DST.week << " " << DST.dow << " " << DST.month << " " << DST.hour << " " << DST.offset << endl;
+    cout << "TZRuleValue ST: " << ST.abbrev << " " << ST.week << " " << ST.dow << " " << ST.month << " " << ST.hour << " " << ST.offset << endl;
+  #endif
   localTZ.setRules(DST, ST);
 
   //write update rate into the GPS  (has to be moved here after we've fetched the value from the config)
@@ -1369,7 +1373,7 @@ static bool readConfig () {
       logfile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
       logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       logfile.print(F("\n"));
-      logfile.print(F("DSTName=PDT\n"));
+      logfile.print(F("DSTName=PDT\n"));          //defaults to US Pacific
       logfile.print(F("DSTWeek=2\n"));
       logfile.print(F("DSTDayOfWeek=1\n"));
       logfile.print(F("DSTMonth=3\n"));
@@ -1586,36 +1590,6 @@ void tcDisable()
 }
 
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
-//This returns the local hour and date based on the data from the GPS and the timeZone value set on the SD card config file.
-bool getLocalTime(uint8_t *localHour, byte *localDay)
-{
-  NeoGPS::clock_t utc;
-
-  int localHourTemp;
-  if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
-    utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
-    
-    time_t local = localTZ.toLocal(utc);              //returns time_t with current local time.
-    #ifdef debug
-      cout << "Current Local Time is: " << hour(local) << ":" << minute(local) << ":" << second(local) << endl;
-    #endif
-
-    //*localDay = day(local);
-    *localHour = hour(local);
-
-    *localDay = globalFix.dateTime.date;
-    localHourTemp = globalFix.dateTime.hours + TimeZone;
-    
-    if (localHourTemp > 23) { *localHour = localHourTemp - 24; *localDay += 1; }
-    else if (localHourTemp < 0) { *localHour = localHourTemp + 24; *localDay -= 1; }
-    else
-      *localHour = localHourTemp;
-    
-    return true;
-  }
-  return false;  //we don't have a valid GPS time so inform the caller that we failed to replace with local time
-}
-
 time_t getLocalTime()
 {
   NeoGPS::clock_t utc;
@@ -1624,7 +1598,7 @@ time_t getLocalTime()
     utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
 
     time_t local = localTZ.toLocal(utc);              //returns time_t with current local time.
-    #ifdef debug
+    #ifdef debug  //probably want to delete this one later
       cout << "Current Local Time is: " << hour(local) << ":" << minute(local) << ":" << second(local) << endl;
     #endif
 
