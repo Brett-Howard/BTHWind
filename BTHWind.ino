@@ -104,12 +104,12 @@
 uint32_t pixelBackground[LED_RING_SIZE];
 
 SdFat sd;
-SDConfigFile cfg;
-SdFile logfile;
-SdFile windStats;
-SdFile compCal;
-SdFile gpsLog;
-SdFile battFile;
+SDConfigFile cfg;   //used for SD config file parsing
+SdFile logfile;     //used for SD config file reading/writing
+SdFile windStats;   //internal file for statistics
+SdFile compCal;     //used for IMU calibration
+SdFile gpsLog;      //used for the GPX log output
+SdFile battFile;    //used to log battery voltage over time
 
 ArduinoOutStream cout(Serial);
 
@@ -148,12 +148,12 @@ TimeChangeRule DST, ST;
 
 Timezone localTZ(DST,ST);  //this creates a placeholder that gets update later once the SD config file is read.  
 
-
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
 // and minimize distance between Arduino and first pixel.  Avoid connecting
 // on a live circuit...if you must, connect GND first.
-// NOTE: I didn't follow any of the above with my design and its never been an issue.
+// NOTE: I didn't follow any of the above with my design and its never been an issue.  I also found that it works without adding a voltage buffer
+// but in my final design I did include a level translator to bring the 3.3V I/O up to 5V logic levels.
 
 void setup() {
   #ifdef debug
