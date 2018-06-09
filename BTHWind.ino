@@ -956,6 +956,12 @@ switch(curMode)
   if(wndSpd > windMax) { windMax = wndSpd; }
 
   //handle radio traffic
+  //Message format 2 bytes per field:
+  //Field 1: (wind speed in knots * 100)
+  //Field 2: Apparent Wind Direction (0-359) 0=bow (if offset is set)
+  //Field 3: Battery voltage*100
+  //Field 4: Free running 8-bit counter (for message loss detection) Each message should be sequential. 
+
   #ifdef LoRaRadioPresent 
     if (rf95.available())
     {
