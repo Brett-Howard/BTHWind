@@ -13,6 +13,7 @@
 #include <NMEAGPS.h>                    //GPS Support
 #include <GPSport.h>                    //GPS Support
 #include <RH_RF95.h>                    //LoRa Radio support
+#include <Timezone.h>                   //allows for conversion to local time
 
 //I2C Address Information (just to make sure there are no collisions)
 //BNO055 - 28h or 29h
@@ -143,10 +144,16 @@ uint8_t startHours = 0, startMinutes = 0, curHours = 0, curMinutes = 0;
 int32_t homeLat, homeLon;
 float homeStatRadius, homeGPSRadius;
 
+//Define time zones
+TimeChangeRule usPDT = {"PDT", Second, Sun, Mar, 2, -420};    //PDT is entered on the 2nd Sunday of March at 2AM and has an offset of -7 hours (420 minutes)
+TimeChangeRule usPST = {"PST", First, Sun, Nov, 2, -480};     //PST is entered on the 1st Sunday of November at 2AM and has an offset of -8 hours (480 minutes)
+Timezone usPacific(usPDT, usPST);  //this creates a time zone compromized of the two above rulesets.  Used for local time conversions
+
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
 // and minimize distance between Arduino and first pixel.  Avoid connecting
 // on a live circuit...if you must, connect GND first.
+// NOTE: I didn't follow any of the above with my design and its never been an issue.
 
 void setup() {
   #ifdef debug
@@ -417,13 +424,6 @@ void setup() {
       gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
     
   globalFix = gps.read();       //snag the fix.
-  //uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
-  
-  //getLocalTime(&startHours, &startDay);
-  //startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
-  
-  //curHours = startHours;
-  //curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
 }
 
 void displayIntFloat(int, char);  //compiler wants this function and only this one listed here for some reason.
@@ -457,12 +457,12 @@ void loop() {
   //Log battery voltage to a CSV file for graphing to understand how well the masthead unit's solar setup is working
   if(millis() > battTimer + batteryLogInterval)
   {
-    uint8_t localHour;
-    byte localDay;
-    getLocalTime(&localHour, &localDay);
+    time_t local;
+    local = getLocalTime();
+
     char date1[22];
     battFile.open("/!CONFIG/BATTERY.CSV", O_WRITE | O_CREAT | O_APPEND);
-    sprintf(date1, "%4d-%02d-%02d %02d:%02d", globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay, localHour, globalFix.dateTime.minutes);
+    sprintf(date1, "%4d-%02d-%02d %02d:%02d", year(local), month(local), day(local), hour(local), minute(local));
     battFile.print(date1); battFile.print(F(", ")); battFile.println(battVoltage);
     battFile.close();
     #ifdef debug
@@ -868,11 +868,15 @@ switch(curMode)
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
         if(!tripStarted)
         {
-          uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
-          getLocalTime(&startHours, &startDay);
-          startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
+          time_t local;
+          local = getLocalTime();
+          
+          startHours = hour(local);
+          startMinutes = minute(local);  //figure out what time we started sailing
+          
           curHours = startHours;
           curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
+          
           tripStarted = true;
         }
         if(globalFix.valid.speed) {
@@ -916,10 +920,10 @@ switch(curMode)
         //Once the temp array is full write data out to the SD card
         if(i_log == elements)
         {
-          //update trip end time
-          uint8_t curDay;
-          getLocalTime(&curHours, &curDay);
-          curMinutes = globalFix.dateTime.minutes;
+          time_t local;
+          local = getLocalTime();
+          curHours = hour(local);
+          curMinutes = minute(local);
           
           //calculate average wind speed and direction components (direction components are needed to work out average wind direction for the trip)
           accumSpeed = accumSinTWD = accumCosTWD = accumBoatSpeed = 0;
@@ -1415,13 +1419,11 @@ bool initSD() {
 
 //This is the callback function for the SdFat file system library so that it can properly timestamp files it modifies and creates
 void dateTime(uint16_t* date, uint16_t* time) {
-  byte localDay;
-  uint8_t localHour;
-  
-  getLocalTime(&localHour, &localDay);
-    
-  *date = FAT_DATE(globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay);
-  *time = FAT_TIME(localHour, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
+  time_t local;
+  local = getLocalTime();
+
+  *date = FAT_DATE(year(local), month(local), day(local));
+  *time = FAT_TIME(hour(local), minute(local), second(local));
 }
 
 //these read functions should be cleaned up later they were just copied from one of the SdFat libraries and are more complex than probably necessary
@@ -1546,10 +1548,22 @@ void tcDisable()
 
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
 //This returns the local hour and date based on the data from the GPS and the timeZone value set on the SD card config file.
-void getLocalTime(uint8_t *localHour, byte *localDay)
+bool getLocalTime(uint8_t *localHour, byte *localDay)
 {
+  NeoGPS::clock_t utc;
+
   int localHourTemp;
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
+    utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
+    
+    time_t local = usPacific.toLocal(utc);              //returns time_t with current local time.
+    #ifdef debug
+      cout << "Current Local Time is: " << hour(local) << ":" << minute(local) << ":" << second(local) << endl;
+    #endif
+
+    //*localDay = day(local);
+    *localHour = hour(local);
+
     *localDay = globalFix.dateTime.date;
     localHourTemp = globalFix.dateTime.hours + TimeZone;
     
@@ -1557,7 +1571,28 @@ void getLocalTime(uint8_t *localHour, byte *localDay)
     else if (localHourTemp < 0) { *localHour = localHourTemp + 24; *localDay -= 1; }
     else
       *localHour = localHourTemp;
+    
+    return true;
   }
+  return false;  //we don't have a valid GPS time so inform the caller that we failed to replace with local time
+}
+
+time_t getLocalTime()
+{
+  NeoGPS::clock_t utc;
+
+  if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
+    utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
+
+    time_t local = usPacific.toLocal(utc);              //returns time_t with current local time.
+    #ifdef debug
+      cout << "Current Local Time is: " << hour(local) << ":" << minute(local) << ":" << second(local) << endl;
+    #endif
+
+    return local;
+  }
+  else
+    return false;
 }
 
 //this is an endless loop that fetches data from the GPS and returns when you have a valid location date and time.
@@ -1596,19 +1631,16 @@ static void waitForFix()
 //Creates folder for the date and a GPX file for the time when the function was called.  
 void startLogFile()
 { 
-  uint8_t localHour;
-  byte localDay;
-
   if(globalFix.valid.date && globalFix.valid.time)
   {
     char directory[9];
-    
-    getLocalTime(&localHour, &localDay); 
-    
+    time_t local;
+    local = getLocalTime();
+
     //for some reason if these two sprintf's are swapped in order it zero's out localHour.  No idea why
-    sprintf(filename, "/%02d-%02d-%02d/%02d-%02d%s", globalFix.dateTime.year, globalFix.dateTime.month, localDay, 
-            localHour, globalFix.dateTime.minutes, ".GPX");
-    sprintf(directory, "/%02d-%02d-%02d", globalFix.dateTime.year, globalFix.dateTime.month, localDay); 
+    sprintf(filename, "/%02d-%02d-%02d/%02d-%02d%s", year(local), month(local), day(local), 
+            hour(local), minute(local), ".GPX");
+    sprintf(directory, "/%02d-%02d-%02d", year(local), month(local), day(local)); 
     
     sd.mkdir(directory);
     #ifdef debug
