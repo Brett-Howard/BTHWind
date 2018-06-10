@@ -453,6 +453,7 @@ void loop() {
   static uint16_t AvWindDir;
   static bool tripStarted = false;
   static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
+  time_t local;
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -462,7 +463,6 @@ void loop() {
   //Log battery voltage to a CSV file for graphing to understand how well the masthead unit's solar setup is working
   if(millis() > battTimer + batteryLogInterval)
   {
-    time_t local;
     local = getLocalTime();
 
     char date1[22];
@@ -870,7 +870,6 @@ switch(curMode)
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
         if(!tripStarted)
         {
-          time_t local;
           local = getLocalTime();
           
           startHours = hour(local);
@@ -922,7 +921,6 @@ switch(curMode)
         //Once the temp array is full write data out to the SD card
         if(i_log == elements)
         {
-          time_t local;
           local = getLocalTime();
           curHours = hour(local);
           curMinutes = minute(local);
@@ -965,13 +963,13 @@ switch(curMode)
 
         //create the file if it doesn't already exist
         if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT | O_APPEND)  || logfile.isOpen()) {
-          logfile.print(); logfile.print(',');   //date
-          logfile.print(); logfile.print(',');   //start time
-          logfile.print(); logfile.print(',');   //end time
-          logfile.print(); logfile.print(',');   //average boat speed
-          logfile.print(); logfile.print(',');   //average wind speed
-          logfile.print(); logfile.print(',');   //average wind angle
-          logfile.print(); logfile.print(',');   //barometer
+          logfile.print(""); logfile.print(',');   //date
+          logfile.print(""); logfile.print(',');   //start time
+          logfile.print(""); logfile.print(',');   //end time
+          logfile.print(""); logfile.print(',');   //average boat speed
+          logfile.print(""); logfile.print(',');   //average wind speed
+          logfile.print(""); logfile.print(',');   //average wind angle
+          logfile.print(""); logfile.print(',');   //barometer
         }
 
         //Figure out what to do if the trip ends and is then restarted....
