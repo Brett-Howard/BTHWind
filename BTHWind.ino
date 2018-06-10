@@ -21,9 +21,11 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
-//#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
-#define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
+#define debug                   //comment this out to not depend on USB uart.
+#define showDistFromHome        //show distance from home once per second (requires debug)
+//#define noisyDebug            //For those days when you need more information (this also requires debug to be on)
+//#define showReceivedPackets   //show recived messages from the mast head unit as they come in
+#define LoRaRadioPresent        //comment this line out to start using the unit with a wireless wind transducer
 
 #define batteryLogInterval 600000  //every 10 minutes
 
@@ -450,7 +452,7 @@ void loop() {
   static bool GPXLogStarted = false;
   static uint32_t speedAccum, boatSpeedAccum;
   static uint16_t AvWindDir;
-  static bool tripStarted = false;
+  static bool tripStarted = false, logEntryMade = false;
   static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
   time_t local;
 
@@ -596,7 +598,7 @@ switch(curMode)
         
         displayString("WAIT");
         
-        ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //results returned by reference
+        ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //read from global WINDSTAT.LOG and results returned by reference
         
         tempTimer = millis();  //start the menu back at the top
       }
@@ -830,12 +832,28 @@ switch(curMode)
     uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);  //only done so you don't have to modify array size in two places
 
     if(millis() > logTimer+1000) {   //capture a new data point "about" once per second
+
+      static uint8_t bytesWritten = 0;
+      
+      #ifdef debug
+        #ifdef showDistFromHome
+          cout << "Distance from home: " << globalFix.location.DistanceKm( home ) << "Km\n";
+        #endif
+      #endif
+
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
         if(!tripStarted)
         {
           startTime = getLocalTime();
           endTime = startTime;      //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
           tripStarted = true;
+        }
+        else if(tripStarted && logEntryMade && bytesWritten > 0)
+        {
+          logEntryMade = false;             //about to remove the latest log entry
+          logfile.truncate(bytesWritten);   //delete the last log entry written
+          bytesWritten = 0;                 //reset the counter
+          logfile.close();  //not sure if I need to close here but what does it hurt?
         }
         if(globalFix.valid.speed) {
           _SOG_ = globalFix.speed() * 100;   //get GPS speeed
@@ -913,9 +931,9 @@ switch(curMode)
       
       if(tripStarted && minute(local) > minute(endTime)+5)
       {
-        sd.mkdir("!LOG");  //make sure the log file exists on the SD card. 
+        sd.mkdir("!LOG");  //make sure the !LOG directory exists on the SD card. 
         
-        ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //results returned by reference
+        ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //read from global WINDSTAT.LOG and results returned by reference
         
         char startStr[22], endStr[22];
         sprintf(startStr, "%4d-%02d-%02d %02d:%02d", year(startTime), month(startTime), day(startTime), hour(startTime), minute(startTime));
@@ -923,12 +941,14 @@ switch(curMode)
       
         //create the file if it doesn't already exist
         if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT | O_APPEND)  || logfile.isOpen()) {
-          logfile.print(startStr); logfile.print(',');   //start date/time
-          logfile.print(endStr); logfile.print(',');   //end date/time
-          logfile.print(float(boatSpeedAccum/100.0)); logfile.print(',');   //average boat speed
-          logfile.print(float(speedAccum/100.0)); logfile.print(',');   //average wind speed
-          logfile.print(AvWindDir); logfile.print(',');   //average wind angle
-          logfile.print(float(getBaro()/100.0)); logfile.print(',');   //barometer
+          bytesWritten += logfile.print(startStr); logfile.print(',');                      //start date/time
+          bytesWritten += logfile.print(endStr); logfile.print(',');                        //end date/time
+          bytesWritten += logfile.print(float(boatSpeedAccum/100.0)); logfile.print(',');   //average boat speed
+          bytesWritten += logfile.print(float(speedAccum/100.0)); logfile.print(',');       //average wind speed
+          bytesWritten += logfile.print(AvWindDir); logfile.print(',');                     //average wind angle
+          bytesWritten += logfile.println(float(getBaro()/100.0));                          //barometer
+          logfile.close();  //close the file to flush the cache to disk
+          logEntryMade = true;
         }
 
         //Figure out what to do if the trip ends and is then restarted....
@@ -938,6 +958,7 @@ switch(curMode)
     }  //end of once per second
   } //if Peet.available();
     
+  //update maximum wind speed if needed  
   if(wndSpd > windMax) { windMax = wndSpd; }
 
   //handle radio traffic
@@ -986,7 +1007,9 @@ switch(curMode)
             }
             ++packetsReceived;
             lastMessage = messageCount;
-            cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
+            #ifdef showReceivedPackets
+              cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
+            #endif          
           #endif
           Peet.processWirelessData(spd, dir);
         }
