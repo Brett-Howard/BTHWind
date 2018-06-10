@@ -105,11 +105,12 @@ uint32_t pixelBackground[LED_RING_SIZE];
 
 SdFat sd;
 SDConfigFile cfg;   //used for SD config file parsing
-SdFile logfile;     //used for SD config file reading/writing
+SdFile configFile;     //used for SD config file reading/writing
 SdFile windStats;   //internal file for statistics
 SdFile compCal;     //used for IMU calibration
 SdFile gpsLog;      //used for the GPX log output
 SdFile battFile;    //used to log battery voltage over time
+SdFile logfile;     //used for sail stats logging
 
 ArduinoOutStream cout(Serial);
 
@@ -828,7 +829,7 @@ switch(curMode)
     globalFix = gps.read();
     if( (homeGPSRadius <= 0) || globalFix.location.DistanceKm( home ) > homeGPSRadius ) {  //check that we're far enough from home to log GPS tracks
       if(!GPXLogStarted && GPXLogging) {
-        startLogFile();
+        startGPSFile();
         GPXLogStarted = true;
       }
       else if(GPXLogging) {
@@ -953,6 +954,28 @@ switch(curMode)
           i_log = 0;
         } //end of stats accumulation after temp array has become full
       } //end of home radius checking
+      
+      //If we're near home and have been on a trip that has ended more than 5 minutes ago
+      local = getLocalTime();
+      if(tripStarted && minute(local) > curMinutes+5)
+      {
+        sd.mkdir("!LOG");  //make sure the log file exists on the SD card. 
+        
+        //calculate stats
+
+        //create the file if it doesn't already exist
+        if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT | O_APPEND)  || logfile.isOpen()) {
+          logfile.print(); logfile.print(',');   //date
+          logfile.print(); logfile.print(',');   //start time
+          logfile.print(); logfile.print(',');   //end time
+          logfile.print(); logfile.print(',');   //average boat speed
+          logfile.print(); logfile.print(',');   //average wind speed
+          logfile.print(); logfile.print(',');   //average wind angle
+          logfile.print(); logfile.print(',');   //barometer
+        }
+
+        //Figure out what to do if the trip ends and is then restarted....
+      }
         
     logTimer = millis();
     }  //end of once per second
@@ -1311,7 +1334,7 @@ static bool readConfig () {
     #endif
     cfg.end();  //close the cfg instance so as to use a normal one
     
-    if (!logfile.open("/!CONFIG/BTH_WIND.CFG", O_CREAT | O_WRITE | O_EXCL)) { //create new file
+    if (!configFile.open("/!CONFIG/BTH_WIND.CFG", O_CREAT | O_WRITE | O_EXCL)) { //create new file
       #ifdef debug
         Serial.println(F("Couldn't open new config file"));
       #endif
@@ -1319,70 +1342,70 @@ static bool readConfig () {
       return 0;
     }
     else {
-      logfile.print(F("#############################################################################################\n"));
-      logfile.print(F("# BTHWindInstrument v0.1 Configuration by Brett Howard\n"));
-      logfile.print(F("# BowOffset: Used to correct for the difference between anemometer north and your Bow\n"));
-      logfile.print(F("# MagVariance: Magnetic variance between true and magnetic north (East = Negative)\n"));
-      logfile.print(F("# HeelAngle: The angle at which you want to switch to displaying a digital heel angle (0 disables)\n"));
-      logfile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
-      logfile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
-      logfile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the wind speed data)\n"));
-      logfile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
-      logfile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
-      logfile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
-      logfile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
-      logfile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
-      logfile.print(F("#    Setting the BaroRefAlt to -1 will tell the unit to use the GPS altitude for the calulation\n"));
-      logfile.print(F("# GPXLogging: If true the unit will log your tracks in GPX format to the SD card\n"));
-      logfile.print(F("# HomeLat: Latitude of your slip in integer format (multiply by 1e7)\n"));
-      logfile.print(F("# HomeLon: Longitude of your slip in integer format (multiply by 1e7)\n"));
-      logfile.print(F("# HomeStatRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
-      logfile.print(F("# HomeRadius: Distance you must go before the GPS tracking activates (0 disables)\n"));
-      logfile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
-      logfile.print(F("# \n"));
-      logfile.print(F("# Timezone Setup:"));
-      logfile.print(F("# Provide a name and configure when each rule occurs\n"));
-      logfile.print(F("# For week 1=Last 2=First 3=Second 4=Third 5=Fourth\n"));
-      logfile.print(F("# For day of week 1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat\n"));
-      logfile.print(F("# For month 1=Jan 2=Feb 3=Mar 4=Apr 5=May 6=Jun 7=Jul 8=Aug 9=Sep 10=Oct 11=Nov 12=Dec\n"));
-      logfile.print(F("# For hour input the time that the adjustment is to take place\n"));
-      logfile.print(F("# For offset input the time offset in minutes\n"));
-      logfile.print(F("# If you wish to log only in UTC just setup a timezone with only zero offset values\n"));
-      logfile.print(F("# \n"));
-      logfile.print(F("#############################################################################################\n\n"));
+      configFile.print(F("#############################################################################################\n"));
+      configFile.print(F("# BTHWindInstrument v0.1 Configuration by Brett Howard\n"));
+      configFile.print(F("# BowOffset: Used to correct for the difference between anemometer north and your Bow\n"));
+      configFile.print(F("# MagVariance: Magnetic variance between true and magnetic north (East = Negative)\n"));
+      configFile.print(F("# HeelAngle: The angle at which you want to switch to displaying a digital heel angle (0 disables)\n"));
+      configFile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
+      configFile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
+      configFile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the wind speed data)\n"));
+      configFile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
+      configFile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
+      configFile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
+      configFile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
+      configFile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
+      configFile.print(F("#    Setting the BaroRefAlt to -1 will tell the unit to use the GPS altitude for the calulation\n"));
+      configFile.print(F("# GPXLogging: If true the unit will log your tracks in GPX format to the SD card\n"));
+      configFile.print(F("# HomeLat: Latitude of your slip in integer format (multiply by 1e7)\n"));
+      configFile.print(F("# HomeLon: Longitude of your slip in integer format (multiply by 1e7)\n"));
+      configFile.print(F("# HomeStatRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
+      configFile.print(F("# HomeRadius: Distance you must go before the GPS tracking activates (0 disables)\n"));
+      configFile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
+      configFile.print(F("# \n"));
+      configFile.print(F("# Timezone Setup:"));
+      configFile.print(F("# Provide a name and configure when each rule occurs\n"));
+      configFile.print(F("# For week 1=Last 2=First 3=Second 4=Third 5=Fourth\n"));
+      configFile.print(F("# For day of week 1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat\n"));
+      configFile.print(F("# For month 1=Jan 2=Feb 3=Mar 4=Apr 5=May 6=Jun 7=Jul 8=Aug 9=Sep 10=Oct 11=Nov 12=Dec\n"));
+      configFile.print(F("# For hour input the time that the adjustment is to take place\n"));
+      configFile.print(F("# For offset input the time offset in minutes\n"));
+      configFile.print(F("# If you wish to log only in UTC just setup a timezone with only zero offset values\n"));
+      configFile.print(F("# \n"));
+      configFile.print(F("#############################################################################################\n\n"));
 
-      logfile.print(F("BowOffset=337\n"));
-      logfile.print(F("MagVariance=15\n"));     //might be possible to support -1 here and read mag var from RMC NMEA sentence
-      logfile.print(F("HeelAngle=15\n"));
-      logfile.print(F("MenuScrollSpeed=150\n"));
-      logfile.print(F("TempUnits=f\n"));
-      logfile.print(F("SpeedMAD=5\n"));          
-      logfile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
-      logfile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
-      logfile.print(F("GPSUpdateRate=1000\n"));
-      logfile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
-      logfile.print(F("GPXLogging=true\n"));
-      logfile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
-      logfile.print(F("HomeLon=-1233155660\n"));
-      logfile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
-      logfile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
-      logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
-      logfile.print(F("\n"));
-      logfile.print(F("DSTName=PDT\n"));          //defaults to US Pacific
-      logfile.print(F("DSTWeek=2\n"));            //first
-      logfile.print(F("DSTDayOfWeek=1\n"));       //Sunday
-      logfile.print(F("DSTMonth=3\n"));           //in March
-      logfile.print(F("DSTHour=2\n"));            //at 2AM
-      logfile.print(F("DSTOffset=-420\n"));        //subtract 7 hours
-      logfile.print(F("\n"));
-      logfile.print(F("STName=PST\n"));           //Pacific STD time
-      logfile.print(F("STWeek=2\n"));             //first
-      logfile.print(F("STDayOfWeek=1\n"));        //Sunday
-      logfile.print(F("STMonth=11\n"));           //in November
-      logfile.print(F("STHour=2\n"));             //at 2AM
-      logfile.print(F("STOffset=-480\n"));        //subtract 8 hours
+      configFile.print(F("BowOffset=337\n"));
+      configFile.print(F("MagVariance=15\n"));     //might be possible to support -1 here and read mag var from RMC NMEA sentence
+      configFile.print(F("HeelAngle=15\n"));
+      configFile.print(F("MenuScrollSpeed=150\n"));
+      configFile.print(F("TempUnits=f\n"));
+      configFile.print(F("SpeedMAD=5\n"));          
+      configFile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
+      configFile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
+      configFile.print(F("GPSUpdateRate=1000\n"));
+      configFile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
+      configFile.print(F("GPXLogging=true\n"));
+      configFile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
+      configFile.print(F("HomeLon=-1233155660\n"));
+      configFile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
+      configFile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
+      configFile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
+      configFile.print(F("\n"));
+      configFile.print(F("DSTName=PDT\n"));          //defaults to US Pacific
+      configFile.print(F("DSTWeek=2\n"));            //first
+      configFile.print(F("DSTDayOfWeek=1\n"));       //Sunday
+      configFile.print(F("DSTMonth=3\n"));           //in March
+      configFile.print(F("DSTHour=2\n"));            //at 2AM
+      configFile.print(F("DSTOffset=-420\n"));        //subtract 7 hours
+      configFile.print(F("\n"));
+      configFile.print(F("STName=PST\n"));           //Pacific STD time
+      configFile.print(F("STWeek=2\n"));             //first
+      configFile.print(F("STDayOfWeek=1\n"));        //Sunday
+      configFile.print(F("STMonth=11\n"));           //in November
+      configFile.print(F("STHour=2\n"));             //at 2AM
+      configFile.print(F("STOffset=-480\n"));        //subtract 8 hours
       
-      logfile.close();
+      configFile.close();
       blip(GREEN_LED_PIN, 5, 200);
     }
     //open the new file to read in the vals
@@ -1635,7 +1658,7 @@ static void waitForFix()
 } // waitForFix
 
 //Creates folder for the date and a GPX file for the time when the function was called.  
-void startLogFile()
+void startGPSFile()
 { 
   if(globalFix.valid.date && globalFix.valid.time)
   {
