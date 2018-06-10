@@ -13,6 +13,7 @@
 #include <NMEAGPS.h>                    //GPS Support
 #include <GPSport.h>                    //GPS Support
 #include <RH_RF95.h>                    //LoRa Radio support
+#include <Timezone.h>                   //allows for conversion to local time
 
 //I2C Address Information (just to make sure there are no collisions)
 //BNO055 - 28h or 29h
@@ -103,12 +104,12 @@
 uint32_t pixelBackground[LED_RING_SIZE];
 
 SdFat sd;
-SDConfigFile cfg;
-SdFile logfile;
-SdFile windStats;
-SdFile compCal;
-SdFile gpsLog;
-SdFile battFile;
+SDConfigFile cfg;   //used for SD config file parsing
+SdFile logfile;     //used for SD config file reading/writing
+SdFile windStats;   //internal file for statistics
+SdFile compCal;     //used for IMU calibration
+SdFile gpsLog;      //used for the GPX log output
+SdFile battFile;    //used to log battery voltage over time
 
 ArduinoOutStream cout(Serial);
 
@@ -143,10 +144,16 @@ uint8_t startHours = 0, startMinutes = 0, curHours = 0, curMinutes = 0;
 int32_t homeLat, homeLon;
 float homeStatRadius, homeGPSRadius;
 
+TimeChangeRule DSTrule, STrule;
+
+Timezone localTZ(DSTrule,STrule);  //this creates a placeholder that gets update later once the SD config file is read.  
+
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
 // and minimize distance between Arduino and first pixel.  Avoid connecting
 // on a live circuit...if you must, connect GND first.
+// NOTE: I didn't follow any of the above with my design and its never been an issue.  I also found that it works without adding a voltage buffer
+// but in my final design I did include a level translator to bring the 3.3V I/O up to 5V logic levels.
 
 void setup() {
   #ifdef debug
@@ -387,6 +394,9 @@ void setup() {
 	  Serial.println(F("SD card configuration read successfully"));
 	#endif
   
+  //now that DST and ST are populated update timezone with the time change rules from the SD card
+  localTZ.setRules(DSTrule, STrule);
+
   //write update rate into the GPS  (has to be moved here after we've fetched the value from the config)
   char tmp[13];
   sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
@@ -417,13 +427,6 @@ void setup() {
       gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
     
   globalFix = gps.read();       //snag the fix.
-  //uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
-  
-  //getLocalTime(&startHours, &startDay);
-  //startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
-  
-  //curHours = startHours;
-  //curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
 }
 
 void displayIntFloat(int, char);  //compiler wants this function and only this one listed here for some reason.
@@ -448,6 +451,7 @@ void loop() {
   static int32_t sinAccum, cosAccum;
   static uint16_t AvWindDir;
   static bool tripStarted = false;
+  static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -457,12 +461,12 @@ void loop() {
   //Log battery voltage to a CSV file for graphing to understand how well the masthead unit's solar setup is working
   if(millis() > battTimer + batteryLogInterval)
   {
-    uint8_t localHour;
-    byte localDay;
-    getLocalTime(&localHour, &localDay);
+    time_t local;
+    local = getLocalTime();
+
     char date1[22];
     battFile.open("/!CONFIG/BATTERY.CSV", O_WRITE | O_CREAT | O_APPEND);
-    sprintf(date1, "%4d-%02d-%02d %02d:%02d", globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay, localHour, globalFix.dateTime.minutes);
+    sprintf(date1, "%4d-%02d-%02d %02d:%02d", year(local), month(local), day(local), hour(local), minute(local));
     battFile.print(date1); battFile.print(F(", ")); battFile.println(battVoltage);
     battFile.close();
     #ifdef debug
@@ -822,14 +826,13 @@ switch(curMode)
   //update the global fix to be used in menu items and for GPX logging
   if(gps.available()) {
     globalFix = gps.read();
-    if(!GPXLogStarted && GPXLogging) {
-      startLogFile();
-      GPXLogStarted = true;
-    }
-    else if(GPXLogging) {
-      static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
-      if( (homeGPSRadius <= 0) || globalFix.location.DistanceKm( home ) > homeGPSRadius ) {  
-        WriteGPXLog();
+    if( (homeGPSRadius <= 0) || globalFix.location.DistanceKm( home ) > homeGPSRadius ) {  //check that we're far enough from home to log GPS tracks
+      if(!GPXLogStarted && GPXLogging) {
+        startLogFile();
+        GPXLogStarted = true;
+      }
+      else if(GPXLogging) {
+          WriteGPXLog();
       }
     }
   }
@@ -862,17 +865,19 @@ switch(curMode)
     static uint32_t logTimer = 0;
     uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);  //only done so you don't have to modify array size in two places
 
-    static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
-
     if(millis() > logTimer+1000) {   //capture a new data point "about" once per second
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
         if(!tripStarted)
         {
-          uint8_t startDay;  //I don't really need this so I'm just making a place holder that will go away.
-          getLocalTime(&startHours, &startDay);
-          startMinutes = globalFix.dateTime.minutes;  //figure out what time we started sailing
+          time_t local;
+          local = getLocalTime();
+          
+          startHours = hour(local);
+          startMinutes = minute(local);  //figure out what time we started sailing
+          
           curHours = startHours;
           curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
+          
           tripStarted = true;
         }
         if(globalFix.valid.speed) {
@@ -916,10 +921,10 @@ switch(curMode)
         //Once the temp array is full write data out to the SD card
         if(i_log == elements)
         {
-          //update trip end time
-          uint8_t curDay;
-          getLocalTime(&curHours, &curDay);
-          curMinutes = globalFix.dateTime.minutes;
+          time_t local;
+          local = getLocalTime();
+          curHours = hour(local);
+          curMinutes = minute(local);
           
           //calculate average wind speed and direction components (direction components are needed to work out average wind direction for the trip)
           accumSpeed = accumSinTWD = accumCosTWD = accumBoatSpeed = 0;
@@ -1325,16 +1330,25 @@ static bool readConfig () {
       logfile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
       logfile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
       logfile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
-      logfile.print(F("# Timezone: Timezone needed to properly timestamp files and report sail start/stop times\n"));
       logfile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
       logfile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
       logfile.print(F("#    Setting the BaroRefAlt to -1 will tell the unit to use the GPS altitude for the calulation\n"));
       logfile.print(F("# GPXLogging: If true the unit will log your tracks in GPX format to the SD card\n"));
-      logfile.print(F("# HomeLat: Latitude of your slip in integer format\n"));
-      logfile.print(F("# HomeLon: Longitude of your slip in integer format\n"));
+      logfile.print(F("# HomeLat: Latitude of your slip in integer format (multiply by 1e7)\n"));
+      logfile.print(F("# HomeLon: Longitude of your slip in integer format (multiply by 1e7)\n"));
       logfile.print(F("# HomeStatRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
       logfile.print(F("# HomeRadius: Distance you must go before the GPS tracking activates (0 disables)\n"));
       logfile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
+      logfile.print(F("# \n"));
+      logfile.print(F("# Timezone Setup:"));
+      logfile.print(F("# Provide a name and configure when each rule occurs\n"));
+      logfile.print(F("# For week 1=Last 2=First 3=Second 4=Third 5=Fourth\n"));
+      logfile.print(F("# For day of week 1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat\n"));
+      logfile.print(F("# For month 1=Jan 2=Feb 3=Mar 4=Apr 5=May 6=Jun 7=Jul 8=Aug 9=Sep 10=Oct 11=Nov 12=Dec\n"));
+      logfile.print(F("# For hour input the time that the adjustment is to take place\n"));
+      logfile.print(F("# For offset input the time offset in minutes\n"));
+      logfile.print(F("# If you wish to log only in UTC just setup a timezone with only zero offset values\n"));
+      logfile.print(F("# \n"));
       logfile.print(F("#############################################################################################\n\n"));
 
       logfile.print(F("BowOffset=337\n"));
@@ -1343,9 +1357,8 @@ static bool readConfig () {
       logfile.print(F("MenuScrollSpeed=150\n"));
       logfile.print(F("TempUnits=f\n"));
       logfile.print(F("SpeedMAD=5\n"));          
-      logfile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate
+      logfile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
       logfile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
-      logfile.print(F("Timezone=-7\n"));
       logfile.print(F("GPSUpdateRate=1000\n"));
       logfile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
       logfile.print(F("GPXLogging=true\n"));
@@ -1354,6 +1367,21 @@ static bool readConfig () {
       logfile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
       logfile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
       logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
+      logfile.print(F("\n"));
+      logfile.print(F("DSTName=PDT\n"));          //defaults to US Pacific
+      logfile.print(F("DSTWeek=2\n"));            //first
+      logfile.print(F("DSTDayOfWeek=1\n"));       //Sunday
+      logfile.print(F("DSTMonth=3\n"));           //in March
+      logfile.print(F("DSTHour=2\n"));            //at 2AM
+      logfile.print(F("DSTOffset=-420\n"));        //subtract 7 hours
+      logfile.print(F("\n"));
+      logfile.print(F("STName=PST\n"));           //Pacific STD time
+      logfile.print(F("STWeek=2\n"));             //first
+      logfile.print(F("STDayOfWeek=1\n"));        //Sunday
+      logfile.print(F("STMonth=11\n"));           //in November
+      logfile.print(F("STHour=2\n"));             //at 2AM
+      logfile.print(F("STOffset=-480\n"));        //subtract 8 hours
+      
       logfile.close();
       blip(GREEN_LED_PIN, 5, 200);
     }
@@ -1384,6 +1412,20 @@ static bool readConfig () {
     if (cfg.nameIs("HomeStatRadius")) { homeStatRadius = float(cfg.getIntValue()/1000.0); }
     if (cfg.nameIs("HomeGPSRadius")) { homeGPSRadius = float(cfg.getIntValue()/1000.0); }
     if (cfg.nameIs("TrackName")) { strcpy(trackName, cfg.copyValue()); }
+
+    if (cfg.nameIs("DSTName")) { strcpy(DSTrule.abbrev, cfg.copyValue()); }
+    if (cfg.nameIs("DSTWeek")) { DSTrule.week = uint8_t(cfg.getIntValue()); }
+    if (cfg.nameIs("DSTDayOfWeek")) { DSTrule.dow = cfg.getIntValue(); }
+    if (cfg.nameIs("DSTMonth")) { DSTrule.month = cfg.getIntValue(); }
+    if (cfg.nameIs("DSTHour")) { DSTrule.hour = cfg.getIntValue(); }
+    if (cfg.nameIs("DSTOffset")) { DSTrule.offset = cfg.getIntValue(); }
+    
+    if (cfg.nameIs("STName")) { strcpy(STrule.abbrev, cfg.copyValue()); }
+    if (cfg.nameIs("STWeek")) { STrule.week = cfg.getIntValue(); }
+    if (cfg.nameIs("STDayOfWeek")) { STrule.dow = cfg.getIntValue(); }
+    if (cfg.nameIs("STMonth")) { STrule.month = cfg.getIntValue(); }
+    if (cfg.nameIs("STHour")) { STrule.hour = cfg.getIntValue(); }
+    if (cfg.nameIs("STOffset")) { STrule.offset = cfg.getIntValue(); }
   }
   cfg.end();  //clean up
   return true;
@@ -1415,13 +1457,11 @@ bool initSD() {
 
 //This is the callback function for the SdFat file system library so that it can properly timestamp files it modifies and creates
 void dateTime(uint16_t* date, uint16_t* time) {
-  byte localDay;
-  uint8_t localHour;
-  
-  getLocalTime(&localHour, &localDay);
-    
-  *date = FAT_DATE(globalFix.dateTime.full_year(), globalFix.dateTime.month, localDay);
-  *time = FAT_TIME(localHour, globalFix.dateTime.minutes, globalFix.dateTime.seconds);
+  time_t local;
+  local = getLocalTime();
+
+  *date = FAT_DATE(year(local), month(local), day(local));
+  *time = FAT_TIME(hour(local), minute(local), second(local));
 }
 
 //these read functions should be cleaned up later they were just copied from one of the SdFat libraries and are more complex than probably necessary
@@ -1545,19 +1585,20 @@ void tcDisable()
 }
 
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
-//This returns the local hour and date based on the data from the GPS and the timeZone value set on the SD card config file.
-void getLocalTime(uint8_t *localHour, byte *localDay)
+time_t getLocalTime()
 {
-  int localHourTemp;
+  NeoGPS::clock_t utc;
+
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
-    *localDay = globalFix.dateTime.date;
-    localHourTemp = globalFix.dateTime.hours + TimeZone;
-    
-    if (localHourTemp > 23) { *localHour = localHourTemp - 24; *localDay += 1; }
-    else if (localHourTemp < 0) { *localHour = localHourTemp + 24; *localDay -= 1; }
-    else
-      *localHour = localHourTemp;
+    utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
+
+    time_t local = localTZ.toLocal(globalFix.dateTime);              //returns time_t with current local time.
+    local += 946100000;  //add 30 years to deal with some odd epoch issue.
+
+    return local;
   }
+  else
+    return false;
 }
 
 //this is an endless loop that fetches data from the GPS and returns when you have a valid location date and time.
@@ -1596,19 +1637,14 @@ static void waitForFix()
 //Creates folder for the date and a GPX file for the time when the function was called.  
 void startLogFile()
 { 
-  uint8_t localHour;
-  byte localDay;
-
   if(globalFix.valid.date && globalFix.valid.time)
   {
     char directory[9];
-    
-    getLocalTime(&localHour, &localDay); 
-    
-    //for some reason if these two sprintf's are swapped in order it zero's out localHour.  No idea why
-    sprintf(filename, "/%02d-%02d-%02d/%02d-%02d%s", globalFix.dateTime.year, globalFix.dateTime.month, localDay, 
-            localHour, globalFix.dateTime.minutes, ".GPX");
-    sprintf(directory, "/%02d-%02d-%02d", globalFix.dateTime.year, globalFix.dateTime.month, localDay); 
+    time_t local;
+    local = getLocalTime();
+
+    sprintf(filename, "/%02d-%02d-%02d/%02d-%02d%s", year(local)%100, month(local), day(local), hour(local), minute(local), ".GPX");
+    sprintf(directory, "/%02d-%02d-%02d", year(local)%100, month(local), day(local)); 
     
     sd.mkdir(directory);
     #ifdef debug
