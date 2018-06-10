@@ -141,7 +141,7 @@ int16_t baroRefAlt;
 char trackName[20] = {0};
 char filename[23];
 bool GPXLogging;
-uint8_t startHours = 0, startMinutes = 0, curHours = 0, curMinutes = 0;
+time_t startTime, endTime;
 int32_t homeLat, homeLon;
 float homeStatRadius, homeGPSRadius;
 
@@ -434,7 +434,7 @@ void displayIntFloat(int, char);  //compiler wants this function and only this o
 volatile bool gestureSensed = false;
 
 void loop() {
-  static Mode curMode = TrueWind;
+  static Mode curMode = TrueWind;    //default state upon power up is True Wind
   static Mode prevMode;
   uint8_t gesture; 
   static uint16_t w,wndSpd,windMax = 0;
@@ -449,7 +449,6 @@ void loop() {
   static uint32_t battTimer;
   static bool GPXLogStarted = false;
   static uint32_t speedAccum, boatSpeedAccum;
-  static int32_t sinAccum, cosAccum;
   static uint16_t AvWindDir;
   static bool tripStarted = false;
   static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
@@ -597,45 +596,9 @@ switch(curMode)
         
         displayString("WAIT");
         
-        windStats.close();  //close the file that has been being logged to
-        //Reading the file in
-        //only read the file in on first entry to the menu entry
+        ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //results returned by reference
         
-        uint16_t i = 0, count = 0, l = 0;
-        int16_t j = 0, k = 0;
-        
-        speedAccum = 0;
-        sinAccum = 0;
-        cosAccum = 0;
-        boatSpeedAccum = 0;
-        count = 0;
-        if(windStats.open("WINDSTAT.LOG", O_READ))
-        { 
-          while (windStats.available()) {
-            csvReadUint16(&windStats, &i, ',');  //read off the speed
-            //cout << "spd[" << count << "]:" << i;
-            speedAccum += i;
-            csvReadInt16(&windStats, &j, ',');  //read off the sin component of the wind direction
-            //cout << " sin[" << count << "]:" << j;
-            sinAccum += j;
-            csvReadInt16(&windStats, &k, ',');   //read off the cos component of the wind direction
-            //cout << " cos[" << count << "]:" << k << endl;
-            cosAccum += k;
-            csvReadUint16(&windStats, &l, ',');   //read off the boat speed 
-            boatSpeedAccum += l;
-            count++;
-          }
-          speedAccum /= count;
-          sinAccum /= count;
-          cosAccum /= count;
-          boatSpeedAccum /= count;
-          //cout << "spdAcc:" << speedAccum << " sinAcc:" << sinAccum << " cosAcc:" << cosAccum << endl;
-          //cout << int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360 << endl;
-          AvWindDir = int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360;
-
-        }
-        windStats.close();
-        tempTimer = millis();
+        tempTimer = millis();  //start the menu back at the top
       }
       /////////////do WindStats
 
@@ -645,7 +608,7 @@ switch(curMode)
       }
       else if(millis() > tempTimer+1000 && millis() < tempTimer+3000) {
         char temp[5];
-        sprintf(temp, "%02u%02u", startHours, startMinutes);
+        sprintf(temp, "%02u%02u", hour(startTime), minute(startTime));
         displayString(temp);
       }
       else if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
@@ -653,7 +616,7 @@ switch(curMode)
       }
       else if(millis() > tempTimer+4000 && millis() < tempTimer+6000) {
         char temp[5];
-        sprintf(temp, "%02u%02u", curHours, curMinutes);
+        sprintf(temp, "%02u%02u", hour(endTime), minute(endTime));
         displayString(temp);
       }
       else if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {
@@ -681,7 +644,7 @@ switch(curMode)
         displayAngle(AvWindDir, '\0');
       }
       else if(millis() > tempTimer+18000)
-        tempTimer = millis();
+        tempTimer = millis();    //restart the menu again
 
       ////////////Transition State
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
@@ -764,7 +727,7 @@ switch(curMode)
       }
       ////////////////Do Baro
       if(millis() > tempTimer+1000) { 
-        displayBaro();
+        displayIntFloat(getBaro(), '\0');
         tempTimer = millis(); 
       } 
       ////////////////Transition State
@@ -870,14 +833,8 @@ switch(curMode)
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
         if(!tripStarted)
         {
-          local = getLocalTime();
-          
-          startHours = hour(local);
-          startMinutes = minute(local);  //figure out what time we started sailing
-          
-          curHours = startHours;
-          curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
-          
+          startTime = getLocalTime();
+          endTime = startTime;      //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
           tripStarted = true;
         }
         if(globalFix.valid.speed) {
@@ -921,9 +878,7 @@ switch(curMode)
         //Once the temp array is full write data out to the SD card
         if(i_log == elements)
         {
-          local = getLocalTime();
-          curHours = hour(local);
-          curMinutes = minute(local);
+          endTime = getLocalTime();
           
           //calculate average wind speed and direction components (direction components are needed to work out average wind direction for the trip)
           accumSpeed = accumSinTWD = accumCosTWD = accumBoatSpeed = 0;
@@ -955,21 +910,25 @@ switch(curMode)
       
       //If we're near home and have been on a trip that has ended more than 5 minutes ago
       local = getLocalTime();
-      if(tripStarted && minute(local) > curMinutes+5)
+      
+      if(tripStarted && minute(local) > minute(endTime)+5)
       {
         sd.mkdir("!LOG");  //make sure the log file exists on the SD card. 
         
-        //calculate stats
-
+        ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //results returned by reference
+        
+        char startStr[22], endStr[22];
+        sprintf(startStr, "%4d-%02d-%02d %02d:%02d", year(startTime), month(startTime), day(startTime), hour(startTime), minute(startTime));
+        sprintf(endStr, "%4d-%02d-%02d %02d:%02d", year(endTime), month(endTime), day(endTime), hour(endTime), minute(endTime));
+      
         //create the file if it doesn't already exist
         if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT | O_APPEND)  || logfile.isOpen()) {
-          logfile.print(""); logfile.print(',');   //date
-          logfile.print(""); logfile.print(',');   //start time
-          logfile.print(""); logfile.print(',');   //end time
-          logfile.print(""); logfile.print(',');   //average boat speed
-          logfile.print(""); logfile.print(',');   //average wind speed
-          logfile.print(""); logfile.print(',');   //average wind angle
-          logfile.print(""); logfile.print(',');   //barometer
+          logfile.print(startStr); logfile.print(',');   //start date/time
+          logfile.print(endStr); logfile.print(',');   //end date/time
+          logfile.print(float(boatSpeedAccum/100.0)); logfile.print(',');   //average boat speed
+          logfile.print(float(speedAccum/100.0)); logfile.print(',');   //average wind speed
+          logfile.print(AvWindDir); logfile.print(',');   //average wind angle
+          logfile.print(float(getBaro()/100.0)); logfile.print(',');   //barometer
         }
 
         //Figure out what to do if the trip ends and is then restarted....
@@ -987,7 +946,6 @@ switch(curMode)
   //Field 2: Apparent Wind Direction (0-359) 0=bow (if offset is set)
   //Field 3: Battery voltage*100
   //Field 4: Free running 8-bit counter (for message loss detection) Each message should be sequential. 
-
   #ifdef LoRaRadioPresent 
     if (rf95.available())
     {
@@ -1098,6 +1056,47 @@ uint16_t getTWD(uint16_t AWA, uint16_t AWS, uint16_t SOG, uint16_t COG) {
   return (COG + getTWA(AWA, AWS, SOG) + 360) % 360; 
 }
 
+void ProcessStatistics(uint32_t &speedAccum, uint32_t &boatSpeedAccum, uint16_t &AvWindDir)
+{
+  windStats.close();  //close the file that has been being logged to
+
+  int32_t sinAccum, cosAccum;
+  uint16_t i = 0, count = 0, l = 0;
+  int16_t j = 0, k = 0;
+  
+  speedAccum = 0;
+  sinAccum = 0;
+  cosAccum = 0;
+  boatSpeedAccum = 0;
+  
+  if(windStats.open("WINDSTAT.LOG", O_READ))
+  { 
+    while (windStats.available()) {
+      csvReadUint16(&windStats, &i, ',');  //read off the speed
+      //cout << "spd[" << count << "]:" << i;
+      speedAccum += i;
+      csvReadInt16(&windStats, &j, ',');  //read off the sin component of the wind direction
+      //cout << " sin[" << count << "]:" << j;
+      sinAccum += j;
+      csvReadInt16(&windStats, &k, ',');   //read off the cos component of the wind direction
+      //cout << " cos[" << count << "]:" << k << endl;
+      cosAccum += k;
+      csvReadUint16(&windStats, &l, ',');   //read off the boat speed 
+      boatSpeedAccum += l;
+      count++;
+    }
+    speedAccum /= count;
+    sinAccum /= count;
+    cosAccum /= count;
+    boatSpeedAccum /= count;
+    //cout << "spdAcc:" << speedAccum << " sinAcc:" << sinAccum << " cosAcc:" << cosAccum << endl;
+    //cout << int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360 << endl;
+    AvWindDir = int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360;
+
+  }
+  windStats.close();      //close the file to let the logger have it back
+}
+
 extern "C" char *sbrk(int i);
  
 int freeRam () {
@@ -1196,7 +1195,7 @@ void displayIntFloat(int val, char lastChar = '\0')  //displays 2 digits of prec
   alpha4.writeDisplay();
 }
 
-void displayBaro()
+int getBaro()
 {
   if(baroRefAlt == -1) {
     //first wait until new GPS data available. 
@@ -1206,11 +1205,11 @@ void displayBaro()
       float alt = globalFix.altitude();
 
       //constants slightly different because GPS altitude is in meters
-      displayIntFloat( round( baro.readPressure()*pow((1-(0.0065*alt)/(baro.readTemperature()+0.0065*alt+273.15)),-5.257)*0.0295301 ) );
+      return round( baro.readPressure()*pow((1-(0.0065*alt)/(baro.readTemperature()+0.0065*alt+273.15)),-5.257)*0.0295301 );
     }
   }
   else
-    displayIntFloat(round( baro.readPressure()*pow((1-(0.0019812*baroRefAlt)/(baro.readTemperature()+0.0019812*baroRefAlt+273.15)),-5.257)*0.0295301 ) );
+    return round( baro.readPressure()*pow((1-(0.0019812*baroRefAlt)/(baro.readTemperature()+0.0019812*baroRefAlt+273.15)),-5.257)*0.0295301 );
 }
 
 void displayTemp(char units)
