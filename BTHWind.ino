@@ -844,12 +844,18 @@ switch(curMode)
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
         if(!tripStarted)
         {
+          #ifdef debug
+            cout << "Trip started stat collection beginning\n";
+          #endif
           startTime = getLocalTime();
           endTime = startTime;      //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
           tripStarted = true;
         }
         else if(tripStarted && logEntryMade && bytesWritten > 0)
         {
+          #ifdef debug
+            cout << "Trip restarted truncating last log entry\n";
+          #endif
           logEntryMade = false;             //about to remove the latest log entry
           logfile.truncate(bytesWritten);   //delete the last log entry written
           bytesWritten = 0;                 //reset the counter
@@ -931,6 +937,10 @@ switch(curMode)
       
       if(tripStarted && minute(local) > minute(endTime)+5)
       {
+        #ifdef debug
+          cout << "Trip ended 5 minutes ago writing log entry\n";
+        #endif 
+
         sd.mkdir("!LOG");  //make sure the !LOG directory exists on the SD card. 
         
         ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //read from global WINDSTAT.LOG and results returned by reference
@@ -949,6 +959,9 @@ switch(curMode)
           bytesWritten += logfile.println(float(getBaro()/100.0));                          //barometer
           logfile.close();  //close the file to flush the cache to disk
           logEntryMade = true;
+          #ifdef debug
+            cout << startStr << "," << endStr << "," << float(boatSpeedAccum/100.0) << "," << float(speedAccum/100.0) << "," << AvWindDir << "," << float(getBaro()/100.0) << endl;
+          #endif
         }
 
         //Figure out what to do if the trip ends and is then restarted....
