@@ -21,12 +21,13 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug                   //comment this out to not depend on USB uart.
+//#define debug                   //comment this out to not depend on USB uart.
 //#define showDistFromHome        //show distance from home once per second (requires debug)
 //#define showClockTime           //prints time to console every time it is fetched (requires debug)
-//#define noisyDebug            //For those days when you need more information (this also requires debug to be on)
-//#define showReceivedPackets   //show recived messages from the mast head unit as they come in
-#define LoRaRadioPresent        //comment this line out to start using the unit with a wireless wind transducer
+//#define noisyDebug              //For those days when you need more information (this also requires debug to be on)
+//#define showReceivedPackets     //show recived messages from the mast head unit as they come in
+//#define showPacketLoss          //print packet lost messages
+#define LoRaRadioPresent          //comment this line out to start using the unit with a wireless wind transducer
 
 #define batteryLogInterval 600000  //every 10 minutes
 
@@ -932,7 +933,7 @@ switch(curMode)
       //If we're near home and have been on a trip that has ended more than a couple minutes ago write that down in the logbook.
       local = getLocalTime();
       
-      if(tripStarted && !logEntryMade && local > endTime+10 && globalFix.location.DistanceKm( home ) <= homeStatRadius)
+      if(tripStarted && !logEntryMade && local > endTime+120 && globalFix.location.DistanceKm( home ) <= homeStatRadius)
       {
         #ifdef debug
           cout << "Trip ended writing log entry\n";
@@ -949,22 +950,26 @@ switch(curMode)
         //create the file if it doesn't already exist.  Put field labels in first.
         if(!sd.exists("/!LOG/LOG.CSV")) {
           if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT)) {
-            cout << "printing headers\n";
-            logfile.print("Start Time"); logfile.print(',');
-            logfile.print("End Time"); logfile.print(',');
-            logfile.print("Avg Boat Speed (knots)"); logfile.print(',');
-            logfile.print("Avg Wind Speed (knots)"); logfile.print(',');
-            logfile.print("Average True Wind Dir (deg)"); logfile.print(',');
-            logfile.println("Barometer (inHg)");
+            #ifdef debug
+              cout << "printing headers\n";
+            #endif
+            logfile.print(F("Start")); logfile.print(',');
+            logfile.print(F("End")); logfile.print(',');
+            logfile.print(F("Avg Speed (kts)")); logfile.print(',');
+            logfile.print(F("Avg Wind (kts)")); logfile.print(',');
+            logfile.print(F("Avg Wind Dir (degT)")); logfile.print(',');
+            logfile.println(F("Baro (inHg)"));
           }
         }
 
         if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_APPEND)  || logfile.isOpen()) {
+          
           if(truncateLastEntry) {
             logfile.seekSet(logfile.fileSize() - bytesWritten);
             bytesWritten = 0;
             truncateLastEntry = false;
           }
+          
           bytesWritten += logfile.print(startStr); 
           bytesWritten += logfile.print(',');                     
           bytesWritten += logfile.print(endStr); 
@@ -978,6 +983,7 @@ switch(curMode)
           bytesWritten += logfile.println(float(getBaro()/100.0));                          
           logfile.close();  //close the file to flush the cache to disk
           logEntryMade = true;
+          
           #ifdef debug
             cout << "Log entry written " << unsigned(bytesWritten) << " bytes appended\n";
             cout << startStr << "," << endStr << "," << float(boatSpeedAccum/100.0) << ",";
@@ -1030,17 +1036,19 @@ switch(curMode)
           memcpy(&battVoltage, &buf[4], 2);
           memcpy(&messageCount, &buf[6], 1);
           #ifdef debug
-            static uint8_t lastMessage;
-            static uint16_t packetsLost = 0;
-            static uint32_t packetsReceived = 0;
-            if(messageCount != uint8_t(lastMessage + 1)) {
-              ++packetsLost;
-              cout << "Packet lost!!!!!!" << endl << endl;
-              cout << "Packet Loss: " << double(packetsLost) / double(packetsReceived) * 100.0 << "%" << endl;
+            #ifdef showPacketLoss
+              static uint8_t lastMessage;
+              static uint16_t packetsLost = 0;
+              static uint32_t packetsReceived = 0;
+              if(messageCount != uint8_t(lastMessage + 1)) {
+                ++packetsLost;
+                cout << "Packet lost!!!!!!" << endl << endl;
+                cout << "Packet Loss: " << double(packetsLost) / double(packetsReceived) * 100.0 << "%" << endl;
+                lastMessage = messageCount;
+              }
+              ++packetsReceived;
               lastMessage = messageCount;
-            }
-            ++packetsReceived;
-            lastMessage = messageCount;
+            #endif
             #ifdef showReceivedPackets
               cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
             #endif          
@@ -1378,7 +1386,7 @@ static bool readConfig () {
   
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
-  sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
+  //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   if (!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) {
     sd.mkdir("!CONFIG");
@@ -1441,7 +1449,7 @@ static bool readConfig () {
       configFile.print(F("GPXLogging=true\n"));
       configFile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
       configFile.print(F("HomeLon=-1233155660\n"));
-      configFile.print(F("HomeStatRadius=80\n"));         //covers just about to the edge of the Eugene Yacht Club
+      configFile.print(F("HomeStatRadius=300\n"));         //covers just about to the edge of the Eugene Yacht Club
       configFile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
       configFile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       configFile.print(F("\n"));
