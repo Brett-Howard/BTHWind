@@ -22,7 +22,8 @@
 //LED Backpack - 70h
 
 #define debug                   //comment this out to not depend on USB uart.
-#define showDistFromHome        //show distance from home once per second (requires debug)
+//#define showDistFromHome        //show distance from home once per second (requires debug)
+//#define showClockTime           //prints time to console every time it is fetched (requires debug)
 //#define noisyDebug            //For those days when you need more information (this also requires debug to be on)
 //#define showReceivedPackets   //show recived messages from the mast head unit as they come in
 #define LoRaRadioPresent        //comment this line out to start using the unit with a wireless wind transducer
@@ -149,7 +150,7 @@ float homeStatRadius, homeGPSRadius;
 
 TimeChangeRule DSTrule, STrule;
 
-Timezone localTZ(DSTrule,STrule);  //this creates a placeholder that gets update later once the SD config file is read.  
+Timezone localTZ(DSTrule,STrule);  //this creates a global placeholder that gets updated later once the SD config file is read.
 
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
@@ -429,8 +430,8 @@ void setup() {
     if(Serial1.available())
       gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
     
-  globalFix = gps.read();       //snag the fix.
-}
+  globalFix = gps.read();       //snag the fix to prime the pump.
+}  //setup
 
 void displayIntFloat(int, char);  //compiler wants this function and only this one listed here for some reason.
 volatile bool gestureSensed = false;
@@ -452,7 +453,7 @@ void loop() {
   static bool GPXLogStarted = false;
   static uint32_t speedAccum, boatSpeedAccum;
   static uint16_t AvWindDir;
-  static bool tripStarted = false, logEntryMade = false;
+  static bool tripStarted = false, logEntryMade = false, truncateLastEntry = false;
   static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
   time_t local;
 
@@ -851,18 +852,14 @@ switch(curMode)
           endTime = startTime;      //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
           tripStarted = true;
         }
-        else if(tripStarted && logEntryMade && bytesWritten > 0)
+        else if(tripStarted && logEntryMade && bytesWritten > 0) //if we're outside of the home stats radius and have already made a log entry clean it up.
         {
-          #ifdef debug
-            cout << "Trip restarted truncating last log entry\n";
-          #endif
-          logEntryMade = false;             //about to remove the latest log entry
-          logfile.truncate(bytesWritten);   //delete the last log entry written
-          bytesWritten = 0;                 //reset the counter
-          logfile.close();  //not sure if I need to close here but what does it hurt?
+          cout << "Trip started again settting variable to truncate last entry on next logbook write\n";
+          truncateLastEntry = true;
+          logEntryMade = false;
         }
         if(globalFix.valid.speed) {
-          _SOG_ = globalFix.speed() * 100;   //get GPS speeed
+          _SOG_ = globalFix.speed() * 100;   //get GPS speed
           statAry[i_log].boatSpeed = _SOG_;
         }
 
@@ -932,13 +929,13 @@ switch(curMode)
         } //end of stats accumulation after temp array has become full
       } //end of home radius checking
       
-      //If we're near home and have been on a trip that has ended more than 5 minutes ago
+      //If we're near home and have been on a trip that has ended more than a couple minutes ago write that down in the logbook.
       local = getLocalTime();
       
-      if(tripStarted && minute(local) > minute(endTime)+5)
+      if(tripStarted && !logEntryMade && local > endTime+10 && globalFix.location.DistanceKm( home ) <= homeStatRadius)
       {
         #ifdef debug
-          cout << "Trip ended 5 minutes ago writing log entry\n";
+          cout << "Trip ended writing log entry\n";
         #endif 
 
         sd.mkdir("!LOG");  //make sure the !LOG directory exists on the SD card. 
@@ -948,19 +945,43 @@ switch(curMode)
         char startStr[22], endStr[22];
         sprintf(startStr, "%4d-%02d-%02d %02d:%02d", year(startTime), month(startTime), day(startTime), hour(startTime), minute(startTime));
         sprintf(endStr, "%4d-%02d-%02d %02d:%02d", year(endTime), month(endTime), day(endTime), hour(endTime), minute(endTime));
-      
-        //create the file if it doesn't already exist
-        if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT | O_APPEND)  || logfile.isOpen()) {
-          bytesWritten += logfile.print(startStr); logfile.print(',');                      //start date/time
-          bytesWritten += logfile.print(endStr); logfile.print(',');                        //end date/time
-          bytesWritten += logfile.print(float(boatSpeedAccum/100.0)); logfile.print(',');   //average boat speed
-          bytesWritten += logfile.print(float(speedAccum/100.0)); logfile.print(',');       //average wind speed
-          bytesWritten += logfile.print(AvWindDir); logfile.print(',');                     //average wind angle
-          bytesWritten += logfile.println(float(getBaro()/100.0));                          //barometer
+
+        //create the file if it doesn't already exist.  Put field labels in first.
+        if(!sd.exists("/!LOG/LOG.CSV")) {
+          if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT)) {
+            cout << "printing headers\n";
+            logfile.print("Start Time"); logfile.print(',');
+            logfile.print("End Time"); logfile.print(',');
+            logfile.print("Avg Boat Speed (knots)"); logfile.print(',');
+            logfile.print("Avg Wind Speed (knots)"); logfile.print(',');
+            logfile.print("Average True Wind Dir (deg)"); logfile.print(',');
+            logfile.println("Barometer (inHg)");
+          }
+        }
+
+        if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_APPEND)  || logfile.isOpen()) {
+          if(truncateLastEntry) {
+            logfile.seekSet(logfile.fileSize() - bytesWritten);
+            bytesWritten = 0;
+            truncateLastEntry = false;
+          }
+          bytesWritten += logfile.print(startStr); 
+          bytesWritten += logfile.print(',');                     
+          bytesWritten += logfile.print(endStr); 
+          bytesWritten += logfile.print(',');                       
+          bytesWritten += logfile.print(float(boatSpeedAccum/100.0)); 
+          bytesWritten += logfile.print(',');                           
+          bytesWritten += logfile.print(float(speedAccum/100.0)); 
+          bytesWritten += logfile.print(',');       
+          bytesWritten += logfile.print(AvWindDir); 
+          bytesWritten += logfile.print(',');                     
+          bytesWritten += logfile.println(float(getBaro()/100.0));                          
           logfile.close();  //close the file to flush the cache to disk
           logEntryMade = true;
           #ifdef debug
-            cout << startStr << "," << endStr << "," << float(boatSpeedAccum/100.0) << "," << float(speedAccum/100.0) << "," << AvWindDir << "," << float(getBaro()/100.0) << endl;
+            cout << "Log entry written " << unsigned(bytesWritten) << " bytes appended\n";
+            cout << startStr << "," << endStr << "," << float(boatSpeedAccum/100.0) << ",";
+            cout << float(speedAccum/100.0) << "," << AvWindDir << "," << float(getBaro()/100.0) << endl;
           #endif
         }
 
@@ -1357,7 +1378,7 @@ static bool readConfig () {
   
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //////sd.chdir("!CONFIG"); sd.vwd()->rmRfStar(); sd.chdir("/");      //using this will torch the entire config directory (IMU cal data too)
-  //sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
+  sd.remove("/!CONFIG/BTH_WIND.CFG");                            //this will delete the main config file and restore it to defaults
   /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   if (!cfg.begin("/!CONFIG/BTH_WIND.CFG", 100)) {
     sd.mkdir("!CONFIG");
@@ -1396,7 +1417,7 @@ static bool readConfig () {
       configFile.print(F("# HomeRadius: Distance you must go before the GPS tracking activates (0 disables)\n"));
       configFile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
       configFile.print(F("# \n"));
-      configFile.print(F("# Timezone Setup:"));
+      configFile.print(F("# Timezone Setup:\n"));
       configFile.print(F("# Provide a name and configure when each rule occurs\n"));
       configFile.print(F("# For week 1=Last 2=First 3=Second 4=Third 5=Fourth\n"));
       configFile.print(F("# For day of week 1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat\n"));
@@ -1408,7 +1429,7 @@ static bool readConfig () {
       configFile.print(F("#############################################################################################\n\n"));
 
       configFile.print(F("BowOffset=337\n"));
-      configFile.print(F("MagVariance=15\n"));     //might be possible to support -1 here and read mag var from RMC NMEA sentence
+      configFile.print(F("MagVariance=15\n"));
       configFile.print(F("HeelAngle=15\n"));
       configFile.print(F("MenuScrollSpeed=150\n"));
       configFile.print(F("TempUnits=f\n"));
@@ -1420,7 +1441,7 @@ static bool readConfig () {
       configFile.print(F("GPXLogging=true\n"));
       configFile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
       configFile.print(F("HomeLon=-1233155660\n"));
-      configFile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
+      configFile.print(F("HomeStatRadius=80\n"));         //covers just about to the edge of the Eugene Yacht Club
       configFile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
       configFile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       configFile.print(F("\n"));
@@ -1641,15 +1662,22 @@ void tcDisable()
 }
 
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
-time_t getLocalTime()
+time_t getLocalTime()   //this function requires that you edit NeoTime.h to use the POSIX epoch or the time will be off by 30 years.
 {
-  NeoGPS::clock_t utc;
+  time_t utc;
 
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
     utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
 
     time_t local = localTZ.toLocal(globalFix.dateTime);              //returns time_t with current local time.
-    local += 946100000;  //add 30 years to deal with some odd epoch issue.
+    
+    #ifdef debug
+      #ifdef showClockTime
+        char timeStr[22];
+        sprintf(timeStr, "%4d-%02d-%02d %02d:%02d", year(local), month(local), day(local), hour(local), minute(local));
+        cout << "At the tone the time will be: " << timeStr << endl;
+      #endif
+    #endif
 
     return local;
   }
