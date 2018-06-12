@@ -962,7 +962,7 @@ switch(curMode)
           }
         }
 
-        if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_APPEND)  || logfile.isOpen()) {
+        if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_AT_END)  || logfile.isOpen()) {
           
           if(truncateLastEntry) {
             logfile.seekSet(logfile.fileSize() - bytesWritten);
