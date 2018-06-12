@@ -949,7 +949,7 @@ switch(curMode)
 
         //create the file if it doesn't already exist.  Put field labels in first.
         if(!sd.exists("/!LOG/LOG.CSV")) {
-          if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT)) {
+          if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_AT_END)) {
             #ifdef debug
               cout << "printing headers\n";
             #endif
