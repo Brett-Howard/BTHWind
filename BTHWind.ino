@@ -21,9 +21,13 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug             //comment this out to not depend on USB uart.
-//#define noisyDebug        //For those days when you need more information (this also requires debug to be on)
-#define LoRaRadioPresent  //comment this line out to start using the unit with a wireless wind transducer
+//#define debug                   //comment this out to not depend on USB uart.
+//#define showDistFromHome        //show distance from home once per second (requires debug)
+//#define showClockTime           //prints time to console every time it is fetched (requires debug)
+//#define noisyDebug              //For those days when you need more information (this also requires debug to be on)
+//#define showReceivedPackets     //show recived messages from the mast head unit as they come in
+//#define showPacketLoss          //print packet lost messages
+#define LoRaRadioPresent          //comment this line out to start using the unit with a wireless wind transducer
 
 #define batteryLogInterval 600000  //every 10 minutes
 
@@ -105,11 +109,12 @@ uint32_t pixelBackground[LED_RING_SIZE];
 
 SdFat sd;
 SDConfigFile cfg;   //used for SD config file parsing
-SdFile logfile;     //used for SD config file reading/writing
+SdFile configFile;     //used for SD config file reading/writing
 SdFile windStats;   //internal file for statistics
 SdFile compCal;     //used for IMU calibration
 SdFile gpsLog;      //used for the GPX log output
 SdFile battFile;    //used to log battery voltage over time
+SdFile logfile;     //used for sail stats logging
 
 ArduinoOutStream cout(Serial);
 
@@ -140,13 +145,13 @@ int16_t baroRefAlt;
 char trackName[20] = {0};
 char filename[23];
 bool GPXLogging;
-uint8_t startHours = 0, startMinutes = 0, curHours = 0, curMinutes = 0;
+time_t startTime, endTime;
 int32_t homeLat, homeLon;
 float homeStatRadius, homeGPSRadius;
 
 TimeChangeRule DSTrule, STrule;
 
-Timezone localTZ(DSTrule,STrule);  //this creates a placeholder that gets update later once the SD config file is read.  
+Timezone localTZ(DSTrule,STrule);  //this creates a global placeholder that gets updated later once the SD config file is read.
 
 // IMPORTANT: To reduce NeoPixel burnout risk, add 1000 uF capacitor across
 // pixel power leads, add 300 - 500 Ohm resistor on first pixel's data input
@@ -426,14 +431,14 @@ void setup() {
     if(Serial1.available())
       gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
     
-  globalFix = gps.read();       //snag the fix.
-}
+  globalFix = gps.read();       //snag the fix to prime the pump.
+}  //setup
 
 void displayIntFloat(int, char);  //compiler wants this function and only this one listed here for some reason.
 volatile bool gestureSensed = false;
 
 void loop() {
-  static Mode curMode = TrueWind;
+  static Mode curMode = TrueWind;    //default state upon power up is True Wind
   static Mode prevMode;
   uint8_t gesture; 
   static uint16_t w,wndSpd,windMax = 0;
@@ -448,10 +453,10 @@ void loop() {
   static uint32_t battTimer;
   static bool GPXLogStarted = false;
   static uint32_t speedAccum, boatSpeedAccum;
-  static int32_t sinAccum, cosAccum;
   static uint16_t AvWindDir;
-  static bool tripStarted = false;
+  static bool tripStarted = false, logEntryMade = false, truncateLastEntry = false;
   static NeoGPS::Location_t home(homeLat, homeLon);  //create Location_t that represents slip locaiton 
+  time_t local;
 
   //adjust wind ring brightness based on ambient light
   apds.readAmbientLight(w);
@@ -461,7 +466,6 @@ void loop() {
   //Log battery voltage to a CSV file for graphing to understand how well the masthead unit's solar setup is working
   if(millis() > battTimer + batteryLogInterval)
   {
-    time_t local;
     local = getLocalTime();
 
     char date1[22];
@@ -596,45 +600,9 @@ switch(curMode)
         
         displayString("WAIT");
         
-        windStats.close();  //close the file that has been being logged to
-        //Reading the file in
-        //only read the file in on first entry to the menu entry
+        ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //read from global WINDSTAT.LOG and results returned by reference
         
-        uint16_t i = 0, count = 0, l = 0;
-        int16_t j = 0, k = 0;
-        
-        speedAccum = 0;
-        sinAccum = 0;
-        cosAccum = 0;
-        boatSpeedAccum = 0;
-        count = 0;
-        if(windStats.open("WINDSTAT.LOG", O_READ))
-        { 
-          while (windStats.available()) {
-            csvReadUint16(&windStats, &i, ',');  //read off the speed
-            //cout << "spd[" << count << "]:" << i;
-            speedAccum += i;
-            csvReadInt16(&windStats, &j, ',');  //read off the sin component of the wind direction
-            //cout << " sin[" << count << "]:" << j;
-            sinAccum += j;
-            csvReadInt16(&windStats, &k, ',');   //read off the cos component of the wind direction
-            //cout << " cos[" << count << "]:" << k << endl;
-            cosAccum += k;
-            csvReadUint16(&windStats, &l, ',');   //read off the boat speed 
-            boatSpeedAccum += l;
-            count++;
-          }
-          speedAccum /= count;
-          sinAccum /= count;
-          cosAccum /= count;
-          boatSpeedAccum /= count;
-          //cout << "spdAcc:" << speedAccum << " sinAcc:" << sinAccum << " cosAcc:" << cosAccum << endl;
-          //cout << int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360 << endl;
-          AvWindDir = int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360;
-
-        }
-        windStats.close();
-        tempTimer = millis();
+        tempTimer = millis();  //start the menu back at the top
       }
       /////////////do WindStats
 
@@ -644,7 +612,7 @@ switch(curMode)
       }
       else if(millis() > tempTimer+1000 && millis() < tempTimer+3000) {
         char temp[5];
-        sprintf(temp, "%02u%02u", startHours, startMinutes);
+        sprintf(temp, "%02u%02u", hour(startTime), minute(startTime));
         displayString(temp);
       }
       else if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
@@ -652,7 +620,7 @@ switch(curMode)
       }
       else if(millis() > tempTimer+4000 && millis() < tempTimer+6000) {
         char temp[5];
-        sprintf(temp, "%02u%02u", curHours, curMinutes);
+        sprintf(temp, "%02u%02u", hour(endTime), minute(endTime));
         displayString(temp);
       }
       else if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {
@@ -680,7 +648,7 @@ switch(curMode)
         displayAngle(AvWindDir, '\0');
       }
       else if(millis() > tempTimer+18000)
-        tempTimer = millis();
+        tempTimer = millis();    //restart the menu again
 
       ////////////Transition State
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
@@ -763,7 +731,7 @@ switch(curMode)
       }
       ////////////////Do Baro
       if(millis() > tempTimer+1000) { 
-        displayBaro();
+        displayIntFloat(getBaro(), '\0');
         tempTimer = millis(); 
       } 
       ////////////////Transition State
@@ -828,7 +796,7 @@ switch(curMode)
     globalFix = gps.read();
     if( (homeGPSRadius <= 0) || globalFix.location.DistanceKm( home ) > homeGPSRadius ) {  //check that we're far enough from home to log GPS tracks
       if(!GPXLogStarted && GPXLogging) {
-        startLogFile();
+        startGPSFile();
         GPXLogStarted = true;
       }
       else if(GPXLogging) {
@@ -866,22 +834,33 @@ switch(curMode)
     uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);  //only done so you don't have to modify array size in two places
 
     if(millis() > logTimer+1000) {   //capture a new data point "about" once per second
+
+      static uint8_t bytesWritten = 0;
+      
+      #ifdef debug
+        #ifdef showDistFromHome
+          cout << "Distance from home: " << globalFix.location.DistanceKm( home ) << "Km\n";
+        #endif
+      #endif
+
       if( (homeStatRadius <= 0) || globalFix.location.DistanceKm( home ) > homeStatRadius ) {  
         if(!tripStarted)
         {
-          time_t local;
-          local = getLocalTime();
-          
-          startHours = hour(local);
-          startMinutes = minute(local);  //figure out what time we started sailing
-          
-          curHours = startHours;
-          curMinutes = startMinutes; //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
-          
+          #ifdef debug
+            cout << "Trip started stat collection beginning\n";
+          #endif
+          startTime = getLocalTime();
+          endTime = startTime;      //just make the start and stop times the same so it doesn't show 0000 if you go in to stats immediately
           tripStarted = true;
         }
+        else if(tripStarted && logEntryMade && bytesWritten > 0) //if we're outside of the home stats radius and have already made a log entry clean it up.
+        {
+          cout << "Trip started again settting variable to truncate last entry on next logbook write\n";
+          truncateLastEntry = true;
+          logEntryMade = false;
+        }
         if(globalFix.valid.speed) {
-          _SOG_ = globalFix.speed() * 100;   //get GPS speeed
+          _SOG_ = globalFix.speed() * 100;   //get GPS speed
           statAry[i_log].boatSpeed = _SOG_;
         }
 
@@ -921,10 +900,7 @@ switch(curMode)
         //Once the temp array is full write data out to the SD card
         if(i_log == elements)
         {
-          time_t local;
-          local = getLocalTime();
-          curHours = hour(local);
-          curMinutes = minute(local);
+          endTime = getLocalTime();
           
           //calculate average wind speed and direction components (direction components are needed to work out average wind direction for the trip)
           accumSpeed = accumSinTWD = accumCosTWD = accumBoatSpeed = 0;
@@ -953,11 +929,79 @@ switch(curMode)
           i_log = 0;
         } //end of stats accumulation after temp array has become full
       } //end of home radius checking
+      
+      //If we're near home and have been on a trip that has ended more than a couple minutes ago write that down in the logbook.
+      local = getLocalTime();
+      
+      if(tripStarted && !logEntryMade && local > endTime+120 && globalFix.location.DistanceKm( home ) <= homeStatRadius)
+      {
+        #ifdef debug
+          cout << "Trip ended writing log entry\n";
+        #endif 
+
+        sd.mkdir("!LOG");  //make sure the !LOG directory exists on the SD card. 
+        
+        ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //read from global WINDSTAT.LOG and results returned by reference
+        
+        char startStr[22], endStr[22];
+        sprintf(startStr, "%4d-%02d-%02d %02d:%02d", year(startTime), month(startTime), day(startTime), hour(startTime), minute(startTime));
+        sprintf(endStr, "%4d-%02d-%02d %02d:%02d", year(endTime), month(endTime), day(endTime), hour(endTime), minute(endTime));
+
+        //create the file if it doesn't already exist.  Put field labels in first.
+        if(!sd.exists("/!LOG/LOG.CSV")) {
+          if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT)) {
+            #ifdef debug
+              cout << "printing headers\n";
+            #endif
+            logfile.print(F("Start")); logfile.print(',');
+            logfile.print(F("End")); logfile.print(',');
+            logfile.print(F("Avg Speed (kts)")); logfile.print(',');
+            logfile.print(F("Avg Wind (kts)")); logfile.print(',');
+            logfile.print(F("Max Wind (kts)")); logfile.print(',';)
+            logfile.print(F("Avg Wind Dir (degT)")); logfile.print(',');
+            logfile.println(F("Baro (inHg)"));
+          }
+        }
+
+        if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_AT_END)  || logfile.isOpen()) {
+          
+          if(truncateLastEntry) {
+            logfile.seekSet(logfile.fileSize() - bytesWritten);
+            bytesWritten = 0;
+            truncateLastEntry = false;
+          }
+          
+          bytesWritten += logfile.print(startStr); 
+          bytesWritten += logfile.print(',');                     
+          bytesWritten += logfile.print(endStr); 
+          bytesWritten += logfile.print(',');                       
+          bytesWritten += logfile.print(float(boatSpeedAccum/100.0)); 
+          bytesWritten += logfile.print(',');                           
+          bytesWritten += logfile.print(float(speedAccum/100.0)); 
+          bytesWritten += logfile.print(',');       
+          bytesWritten += logfile.print(float(windMax/100.0));
+          bytesWritten += logfile.print(',');
+          bytesWritten += logfile.print(AvWindDir); 
+          bytesWritten += logfile.print(',');                     
+          bytesWritten += logfile.println(float(getBaro()/100.0));                          
+          logfile.close();  //close the file to flush the cache to disk
+          logEntryMade = true;
+          
+          #ifdef debug
+            cout << "Log entry written " << unsigned(bytesWritten) << " bytes appended\n";
+            cout << startStr << "," << endStr << "," << float(boatSpeedAccum/100.0) << ",";
+            cout << float(speedAccum/100.0) << "," << AvWindDir << "," << float(getBaro()/100.0) << endl;
+          #endif
+        }
+
+        //Figure out what to do if the trip ends and is then restarted....
+      }
         
     logTimer = millis();
     }  //end of once per second
   } //if Peet.available();
     
+  //update maximum wind speed if needed  
   if(wndSpd > windMax) { windMax = wndSpd; }
 
   //handle radio traffic
@@ -966,7 +1010,6 @@ switch(curMode)
   //Field 2: Apparent Wind Direction (0-359) 0=bow (if offset is set)
   //Field 3: Battery voltage*100
   //Field 4: Free running 8-bit counter (for message loss detection) Each message should be sequential. 
-
   #ifdef LoRaRadioPresent 
     if (rf95.available())
     {
@@ -996,18 +1039,22 @@ switch(curMode)
           memcpy(&battVoltage, &buf[4], 2);
           memcpy(&messageCount, &buf[6], 1);
           #ifdef debug
-            static uint8_t lastMessage;
-            static uint16_t packetsLost = 0;
-            static uint32_t packetsReceived = 0;
-            if(messageCount != uint8_t(lastMessage + 1)) {
-              ++packetsLost;
-              cout << "Packet lost!!!!!!" << endl << endl;
-              cout << "Packet Loss: " << double(packetsLost) / double(packetsReceived) * 100.0 << "%" << endl;
+            #ifdef showPacketLoss
+              static uint8_t lastMessage;
+              static uint16_t packetsLost = 0;
+              static uint32_t packetsReceived = 0;
+              if(messageCount != uint8_t(lastMessage + 1)) {
+                ++packetsLost;
+                cout << "Packet lost!!!!!!" << endl << endl;
+                cout << "Packet Loss: " << double(packetsLost) / double(packetsReceived) * 100.0 << "%" << endl;
+                lastMessage = messageCount;
+              }
+              ++packetsReceived;
               lastMessage = messageCount;
-            }
-            ++packetsReceived;
-            lastMessage = messageCount;
-            cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
+            #endif
+            #ifdef showReceivedPackets
+              cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
+            #endif          
           #endif
           Peet.processWirelessData(spd, dir);
         }
@@ -1075,6 +1122,47 @@ uint16_t getTWA(uint16_t AWA, uint16_t AWS, uint16_t SOG)
 //get True Wind Direction
 uint16_t getTWD(uint16_t AWA, uint16_t AWS, uint16_t SOG, uint16_t COG) { 
   return (COG + getTWA(AWA, AWS, SOG) + 360) % 360; 
+}
+
+void ProcessStatistics(uint32_t &speedAccum, uint32_t &boatSpeedAccum, uint16_t &AvWindDir)
+{
+  windStats.close();  //close the file that has been being logged to
+
+  int32_t sinAccum, cosAccum;
+  uint16_t i = 0, count = 0, l = 0;
+  int16_t j = 0, k = 0;
+  
+  speedAccum = 0;
+  sinAccum = 0;
+  cosAccum = 0;
+  boatSpeedAccum = 0;
+  
+  if(windStats.open("WINDSTAT.LOG", O_READ))
+  { 
+    while (windStats.available()) {
+      csvReadUint16(&windStats, &i, ',');  //read off the speed
+      //cout << "spd[" << count << "]:" << i;
+      speedAccum += i;
+      csvReadInt16(&windStats, &j, ',');  //read off the sin component of the wind direction
+      //cout << " sin[" << count << "]:" << j;
+      sinAccum += j;
+      csvReadInt16(&windStats, &k, ',');   //read off the cos component of the wind direction
+      //cout << " cos[" << count << "]:" << k << endl;
+      cosAccum += k;
+      csvReadUint16(&windStats, &l, ',');   //read off the boat speed 
+      boatSpeedAccum += l;
+      count++;
+    }
+    speedAccum /= count;
+    sinAccum /= count;
+    cosAccum /= count;
+    boatSpeedAccum /= count;
+    //cout << "spdAcc:" << speedAccum << " sinAcc:" << sinAccum << " cosAcc:" << cosAccum << endl;
+    //cout << int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360 << endl;
+    AvWindDir = int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360;
+
+  }
+  windStats.close();      //close the file to let the logger have it back
 }
 
 extern "C" char *sbrk(int i);
@@ -1175,7 +1263,7 @@ void displayIntFloat(int val, char lastChar = '\0')  //displays 2 digits of prec
   alpha4.writeDisplay();
 }
 
-void displayBaro()
+int getBaro()
 {
   if(baroRefAlt == -1) {
     //first wait until new GPS data available. 
@@ -1185,11 +1273,11 @@ void displayBaro()
       float alt = globalFix.altitude();
 
       //constants slightly different because GPS altitude is in meters
-      displayIntFloat( round( baro.readPressure()*pow((1-(0.0065*alt)/(baro.readTemperature()+0.0065*alt+273.15)),-5.257)*0.0295301 ) );
+      return round( baro.readPressure()*pow((1-(0.0065*alt)/(baro.readTemperature()+0.0065*alt+273.15)),-5.257)*0.0295301 );
     }
   }
   else
-    displayIntFloat(round( baro.readPressure()*pow((1-(0.0019812*baroRefAlt)/(baro.readTemperature()+0.0019812*baroRefAlt+273.15)),-5.257)*0.0295301 ) );
+    return round( baro.readPressure()*pow((1-(0.0019812*baroRefAlt)/(baro.readTemperature()+0.0019812*baroRefAlt+273.15)),-5.257)*0.0295301 );
 }
 
 void displayTemp(char units)
@@ -1311,7 +1399,7 @@ static bool readConfig () {
     #endif
     cfg.end();  //close the cfg instance so as to use a normal one
     
-    if (!logfile.open("/!CONFIG/BTH_WIND.CFG", O_CREAT | O_WRITE | O_EXCL)) { //create new file
+    if (!configFile.open("/!CONFIG/BTH_WIND.CFG", O_CREAT | O_WRITE | O_EXCL)) { //create new file
       #ifdef debug
         Serial.println(F("Couldn't open new config file"));
       #endif
@@ -1319,70 +1407,70 @@ static bool readConfig () {
       return 0;
     }
     else {
-      logfile.print(F("#############################################################################################\n"));
-      logfile.print(F("# BTHWindInstrument v0.1 Configuration by Brett Howard\n"));
-      logfile.print(F("# BowOffset: Used to correct for the difference between anemometer north and your Bow\n"));
-      logfile.print(F("# MagVariance: Magnetic variance between true and magnetic north (East = Negative)\n"));
-      logfile.print(F("# HeelAngle: The angle at which you want to switch to displaying a digital heel angle (0 disables)\n"));
-      logfile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
-      logfile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
-      logfile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the wind speed data)\n"));
-      logfile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
-      logfile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
-      logfile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
-      logfile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
-      logfile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
-      logfile.print(F("#    Setting the BaroRefAlt to -1 will tell the unit to use the GPS altitude for the calulation\n"));
-      logfile.print(F("# GPXLogging: If true the unit will log your tracks in GPX format to the SD card\n"));
-      logfile.print(F("# HomeLat: Latitude of your slip in integer format (multiply by 1e7)\n"));
-      logfile.print(F("# HomeLon: Longitude of your slip in integer format (multiply by 1e7)\n"));
-      logfile.print(F("# HomeStatRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
-      logfile.print(F("# HomeRadius: Distance you must go before the GPS tracking activates (0 disables)\n"));
-      logfile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
-      logfile.print(F("# \n"));
-      logfile.print(F("# Timezone Setup:"));
-      logfile.print(F("# Provide a name and configure when each rule occurs\n"));
-      logfile.print(F("# For week 1=Last 2=First 3=Second 4=Third 5=Fourth\n"));
-      logfile.print(F("# For day of week 1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat\n"));
-      logfile.print(F("# For month 1=Jan 2=Feb 3=Mar 4=Apr 5=May 6=Jun 7=Jul 8=Aug 9=Sep 10=Oct 11=Nov 12=Dec\n"));
-      logfile.print(F("# For hour input the time that the adjustment is to take place\n"));
-      logfile.print(F("# For offset input the time offset in minutes\n"));
-      logfile.print(F("# If you wish to log only in UTC just setup a timezone with only zero offset values\n"));
-      logfile.print(F("# \n"));
-      logfile.print(F("#############################################################################################\n\n"));
+      configFile.print(F("#############################################################################################\n"));
+      configFile.print(F("# BTHWindInstrument v0.1 Configuration by Brett Howard\n"));
+      configFile.print(F("# BowOffset: Used to correct for the difference between anemometer north and your Bow\n"));
+      configFile.print(F("# MagVariance: Magnetic variance between true and magnetic north (East = Negative)\n"));
+      configFile.print(F("# HeelAngle: The angle at which you want to switch to displaying a digital heel angle (0 disables)\n"));
+      configFile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
+      configFile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
+      configFile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the wind speed data)\n"));
+      configFile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
+      configFile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
+      configFile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
+      configFile.print(F("# GPSUpdateRate: Time in mS Between GPS fix updates\n"));
+      configFile.print(F("# BaroRefAlt: Barometer reference Altitude (in feet) put in 0 to report \"station pressure\"\n"));
+      configFile.print(F("#    Setting the BaroRefAlt to -1 will tell the unit to use the GPS altitude for the calulation\n"));
+      configFile.print(F("# GPXLogging: If true the unit will log your tracks in GPX format to the SD card\n"));
+      configFile.print(F("# HomeLat: Latitude of your slip in integer format (multiply by 1e7)\n"));
+      configFile.print(F("# HomeLon: Longitude of your slip in integer format (multiply by 1e7)\n"));
+      configFile.print(F("# HomeStatRadius: Distance you must go before the statistics collection activates (0 disables)\n"));
+      configFile.print(F("# HomeRadius: Distance you must go before the GPS tracking activates (0 disables)\n"));
+      configFile.print(F("# TrackName: A name to be associated into your GPX log files\n"));
+      configFile.print(F("# \n"));
+      configFile.print(F("# Timezone Setup:\n"));
+      configFile.print(F("# Provide a name and configure when each rule occurs\n"));
+      configFile.print(F("# For week 1=Last 2=First 3=Second 4=Third 5=Fourth\n"));
+      configFile.print(F("# For day of week 1=Sun 2=Mon 3=Tue 4=Wed 5=Thu 6=Fri 7=Sat\n"));
+      configFile.print(F("# For month 1=Jan 2=Feb 3=Mar 4=Apr 5=May 6=Jun 7=Jul 8=Aug 9=Sep 10=Oct 11=Nov 12=Dec\n"));
+      configFile.print(F("# For hour input the time that the adjustment is to take place\n"));
+      configFile.print(F("# For offset input the time offset in minutes\n"));
+      configFile.print(F("# If you wish to log only in UTC just setup a timezone with only zero offset values\n"));
+      configFile.print(F("# \n"));
+      configFile.print(F("#############################################################################################\n\n"));
 
-      logfile.print(F("BowOffset=337\n"));
-      logfile.print(F("MagVariance=15\n"));     //might be possible to support -1 here and read mag var from RMC NMEA sentence
-      logfile.print(F("HeelAngle=15\n"));
-      logfile.print(F("MenuScrollSpeed=150\n"));
-      logfile.print(F("TempUnits=f\n"));
-      logfile.print(F("SpeedMAD=5\n"));          
-      logfile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
-      logfile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
-      logfile.print(F("GPSUpdateRate=1000\n"));
-      logfile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
-      logfile.print(F("GPXLogging=true\n"));
-      logfile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
-      logfile.print(F("HomeLon=-1233155660\n"));
-      logfile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
-      logfile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
-      logfile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
-      logfile.print(F("\n"));
-      logfile.print(F("DSTName=PDT\n"));          //defaults to US Pacific
-      logfile.print(F("DSTWeek=2\n"));            //first
-      logfile.print(F("DSTDayOfWeek=1\n"));       //Sunday
-      logfile.print(F("DSTMonth=3\n"));           //in March
-      logfile.print(F("DSTHour=2\n"));            //at 2AM
-      logfile.print(F("DSTOffset=-420\n"));        //subtract 7 hours
-      logfile.print(F("\n"));
-      logfile.print(F("STName=PST\n"));           //Pacific STD time
-      logfile.print(F("STWeek=2\n"));             //first
-      logfile.print(F("STDayOfWeek=1\n"));        //Sunday
-      logfile.print(F("STMonth=11\n"));           //in November
-      logfile.print(F("STHour=2\n"));             //at 2AM
-      logfile.print(F("STOffset=-480\n"));        //subtract 8 hours
+      configFile.print(F("BowOffset=337\n"));
+      configFile.print(F("MagVariance=15\n"));
+      configFile.print(F("HeelAngle=15\n"));
+      configFile.print(F("MenuScrollSpeed=150\n"));
+      configFile.print(F("TempUnits=f\n"));
+      configFile.print(F("SpeedMAD=5\n"));          
+      configFile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
+      configFile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
+      configFile.print(F("GPSUpdateRate=1000\n"));
+      configFile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
+      configFile.print(F("GPXLogging=true\n"));
+      configFile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
+      configFile.print(F("HomeLon=-1233155660\n"));
+      configFile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
+      configFile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
+      configFile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
+      configFile.print(F("\n"));
+      configFile.print(F("DSTName=PDT\n"));          //defaults to US Pacific
+      configFile.print(F("DSTWeek=2\n"));            //first
+      configFile.print(F("DSTDayOfWeek=1\n"));       //Sunday
+      configFile.print(F("DSTMonth=3\n"));           //in March
+      configFile.print(F("DSTHour=2\n"));            //at 2AM
+      configFile.print(F("DSTOffset=-420\n"));        //subtract 7 hours
+      configFile.print(F("\n"));
+      configFile.print(F("STName=PST\n"));           //Pacific STD time
+      configFile.print(F("STWeek=2\n"));             //first
+      configFile.print(F("STDayOfWeek=1\n"));        //Sunday
+      configFile.print(F("STMonth=11\n"));           //in November
+      configFile.print(F("STHour=2\n"));             //at 2AM
+      configFile.print(F("STOffset=-480\n"));        //subtract 8 hours
       
-      logfile.close();
+      configFile.close();
       blip(GREEN_LED_PIN, 5, 200);
     }
     //open the new file to read in the vals
@@ -1585,15 +1673,22 @@ void tcDisable()
 }
 
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
-time_t getLocalTime()
+time_t getLocalTime()   //this function requires that you edit NeoTime.h to use the POSIX epoch or the time will be off by 30 years.
 {
-  NeoGPS::clock_t utc;
+  time_t utc;
 
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
     utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
 
     time_t local = localTZ.toLocal(globalFix.dateTime);              //returns time_t with current local time.
-    local += 946100000;  //add 30 years to deal with some odd epoch issue.
+    
+    #ifdef debug
+      #ifdef showClockTime
+        char timeStr[22];
+        sprintf(timeStr, "%4d-%02d-%02d %02d:%02d", year(local), month(local), day(local), hour(local), minute(local));
+        cout << "At the tone the time will be: " << timeStr << endl;
+      #endif
+    #endif
 
     return local;
   }
@@ -1635,7 +1730,7 @@ static void waitForFix()
 } // waitForFix
 
 //Creates folder for the date and a GPX file for the time when the function was called.  
-void startLogFile()
+void startGPSFile()
 { 
   if(globalFix.valid.date && globalFix.valid.time)
   {
