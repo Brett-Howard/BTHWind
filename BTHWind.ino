@@ -949,7 +949,7 @@ switch(curMode)
 
         //create the file if it doesn't already exist.  Put field labels in first.
         if(!sd.exists("/!LOG/LOG.CSV")) {
-          if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_AT_END)) {
+          if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT)) {
             #ifdef debug
               cout << "printing headers\n";
             #endif
@@ -957,6 +957,7 @@ switch(curMode)
             logfile.print(F("End")); logfile.print(',');
             logfile.print(F("Avg Speed (kts)")); logfile.print(',');
             logfile.print(F("Avg Wind (kts)")); logfile.print(',');
+            logfile.print(F("Max Wind (kts)")); logfile.print(',';)
             logfile.print(F("Avg Wind Dir (degT)")); logfile.print(',');
             logfile.println(F("Baro (inHg)"));
           }
@@ -978,6 +979,8 @@ switch(curMode)
           bytesWritten += logfile.print(',');                           
           bytesWritten += logfile.print(float(speedAccum/100.0)); 
           bytesWritten += logfile.print(',');       
+          bytesWritten += logfile.print(float(windMax/100.0));
+          bytesWritten += logfile.print(',');
           bytesWritten += logfile.print(AvWindDir); 
           bytesWritten += logfile.print(',');                     
           bytesWritten += logfile.println(float(getBaro()/100.0));                          
@@ -1449,7 +1452,7 @@ static bool readConfig () {
       configFile.print(F("GPXLogging=true\n"));
       configFile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
       configFile.print(F("HomeLon=-1233155660\n"));
-      configFile.print(F("HomeStatRadius=300\n"));         //covers just about to the edge of the Eugene Yacht Club
+      configFile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
       configFile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
       configFile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       configFile.print(F("\n"));
