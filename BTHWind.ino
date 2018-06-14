@@ -963,6 +963,8 @@ switch(curMode)
           }
         }
 
+        //O_AT_END used to make new entries appear at the end but moved back one record if truncation is needed.
+        //O_APPEND actually ignores the seekSet command and always does all writes at the end of the file.
         if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_AT_END)  || logfile.isOpen()) {
           
           if(truncateLastEntry) {
@@ -990,7 +992,7 @@ switch(curMode)
           #ifdef debug
             cout << "Log entry written " << unsigned(bytesWritten) << " bytes appended\n";
             cout << startStr << "," << endStr << "," << float(boatSpeedAccum/100.0) << ",";
-            cout << float(speedAccum/100.0) << "," << AvWindDir << "," << float(getBaro()/100.0) << endl;
+            cout << float(speedAccum/100.0) << "," << float(windMax/100.0) << "," << AvWindDir << "," << float(getBaro()/100.0) << endl;
           #endif
         }
 
