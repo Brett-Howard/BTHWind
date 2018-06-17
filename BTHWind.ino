@@ -957,7 +957,7 @@ switch(curMode)
             logfile.print(F("End")); logfile.print(',');
             logfile.print(F("Avg Speed (kts)")); logfile.print(',');
             logfile.print(F("Avg Wind (kts)")); logfile.print(',');
-            logfile.print(F("Max Wind (kts)")); logfile.print(',';)
+            logfile.print(F("Max Wind (kts)")); logfile.print(',');
             logfile.print(F("Avg Wind Dir (degT)")); logfile.print(',');
             logfile.println(F("Baro (inHg)"));
           }
