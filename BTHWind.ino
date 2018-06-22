@@ -388,7 +388,10 @@ void setup() {
 
     bno.setSensorOffsets(offsets);  //squirt the calibration into the IMU object
   }
-  
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  //Read Configuration from SD card and populate globals
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
   if(!readConfig()) {  //read configuration from SD card
     #ifdef debug
 	    Serial.println(F("Failed to create and/or read configuration file from SD"));
@@ -398,7 +401,7 @@ void setup() {
   #ifdef debug
 	  Serial.println(F("SD card configuration read successfully"));
 	#endif
-  
+
   //now that DST and ST are populated update timezone with the time change rules from the SD card
   localTZ.setRules(DSTrule, STrule);
 
@@ -420,13 +423,17 @@ void setup() {
     tcConfigure(1000);  //1 second timer 
   #endif
     //if there is a LoRa radio the radio data is polled on and given to the anemometer object when received in the main loop.
-    attachInterrupt(digitalPinToInterrupt(GESTURE_INT),isrGesture, FALLING);
+
+  //setup inerrupt to handle the gesture sensor
+  attachInterrupt(digitalPinToInterrupt(GESTURE_INT),isrGesture, FALLING);
   
+  //Set LED ring brightness and animate the background into place
   uint16_t w;
   apds.readAmbientLight(w);
   strip.setBrightness(map(w,0,37889,5,255));  //set the brightness for the power up sequence so it doesn't change after powerup.
   animateRedGreenWipe(60);  //pretty startup animation
 
+  //prime the pump for the GPS just to make sure the globals are usable on the first time through the loop.
   while(!gps.available())
     if(Serial1.available())
       gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
@@ -524,7 +531,7 @@ attachInterrupt(digitalPinToInterrupt(GESTURE_INT),isrGesture, FALLING);
 //This switch is the state machine for all the menu items. 
 switch(curMode)
 {
-  case AppWind:
+  case AppWind:      //displays apparent wind speed and direction relative to the bow
       if(firstEntry) {
         scrollString("APPARENT WIND\0", menuDelay);
         firstEntry = false;
@@ -548,7 +555,7 @@ switch(curMode)
       else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
       break;
 
-      case TrueWind:
+      case TrueWind:      //displays true wind speed and direction relative to the bow
       if(firstEntry) {
         scrollString("TRUE WIND\0", menuDelay);
         firstEntry = false;
@@ -592,7 +599,7 @@ switch(curMode)
       break;
   
   
-  case WindStats:
+  case WindStats:     //displays statistical information about the current trip
       if(firstEntry || newSDData) {
         scrollString("SAIL STATS\0", menuDelay);
         firstEntry = false;
@@ -657,7 +664,7 @@ switch(curMode)
       else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
       break;
   
-  case CompHead:
+  case CompHead:     //displays magnetometer based heading (compass)
       if(firstEntry) {
         scrollString("COMPASS HEADING\0", menuDelay);
         firstEntry = false;
@@ -687,7 +694,7 @@ switch(curMode)
       break; 
   
   
-  case COG:
+  case COG:    //displays GPS course over ground
       if(firstEntry) {
         scrollString("GPS COG\0", menuDelay);
         firstEntry = false;
@@ -705,7 +712,7 @@ switch(curMode)
       break; 
   
   
-  case SOG:
+  case SOG:  //displays GPS speed over ground
       if(firstEntry) {
         scrollString("GPS SOG\0", menuDelay);
         firstEntry = false;
@@ -724,7 +731,7 @@ switch(curMode)
       break;
   
   
-  case Baro:
+  case Baro:    //displays current barometer
       if(firstEntry) {
         scrollString("BAROMETER\0", menuDelay);
         firstEntry = false;
@@ -741,7 +748,7 @@ switch(curMode)
       break;
   
   
-  case Temp:
+  case Temp:  //displays current temperature
       if(firstEntry) {
         scrollString("TEMPERATURE\0", menuDelay);
         firstEntry = false;
@@ -758,7 +765,7 @@ switch(curMode)
       else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = Temp; firstEntry = true; }
       break;
   
-  case MastBatt:
+  case MastBatt:  //displays mast head battery voltage
       if(firstEntry) {
         scrollString("MAST BATTERY\0", menuDelay);
         firstEntry = false;
@@ -771,7 +778,7 @@ switch(curMode)
       else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
       break;
   
-  case Heel:
+  case Heel:  //Displays current heel angle
       if(firstEntry) {
         scrollString("Reduce Heel\0", menuDelay/2);
         firstEntry = false;
@@ -785,6 +792,7 @@ switch(curMode)
       }
       break;
   }
+  ///////////End of switch that handles menu items
   
   
   //Fetch all data from the GPS UART and feed it to the NeoGPS object
@@ -793,7 +801,7 @@ switch(curMode)
       
   //update the global fix to be used in menu items and for GPX logging
   if(gps.available()) {
-    globalFix = gps.read();
+    globalFix = gps.read();  
     if( (homeGPSRadius <= 0) || globalFix.location.DistanceKm( home ) > homeGPSRadius ) {  //check that we're far enough from home to log GPS tracks
       if(!GPXLogStarted && GPXLogging) {
         startGPSFile();
@@ -805,7 +813,7 @@ switch(curMode)
     }
   }
 
-  //Calculate statistics to be used in the SAIL STATS menu
+  //Collect statistics to be used in the SAIL STATS menu
   if(Peet.available()) {        //only true when new information has been received from the anemometer object
     
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop when necessary because its an expensive operation (right here)
@@ -999,17 +1007,17 @@ switch(curMode)
         //Figure out what to do if the trip ends and is then restarted....
       }
         
-    logTimer = millis();
+    logTimer = millis();  //take a datapoint so we know when to come back in here again
     }  //end of once per second
   } //if Peet.available();
     
   //update maximum wind speed if needed  
-  if(wndSpd > windMax) { windMax = wndSpd; }
+  if(wndSpd > windMax) { windMax = wndSpd; }  //Only takes a single datapoint for a max but remember it comes from a moving average filter.
 
   //handle radio traffic
   //Message format 2 bytes per field:
   //Field 1: (wind speed in knots * 100)
-  //Field 2: Apparent Wind Direction (0-359) 0=bow (if offset is set)
+  //Field 2: Apparent Wind Direction (0-359) 0=bow (if offset is set properly)
   //Field 3: Battery voltage*100
   //Field 4: Free running 8-bit counter (for message loss detection) Each message should be sequential. 
   #ifdef LoRaRadioPresent 
@@ -1026,7 +1034,7 @@ switch(curMode)
         uint8_t messageCount;
 
         if(stricmp((char*)buf,"McFly") == 0) {
-          strcpy((char*)data, "HiBiff");
+          strcpy((char*)data, "HiBiff");   //first reply of HiBiff mostly just as a joke.  Mast head doesn't care what it gets back really.
           #ifdef debug
             cout << "Got McFly?...  Sending \"HiBiff\"" << endl;
           #endif
@@ -1035,11 +1043,14 @@ switch(curMode)
           #ifdef debug
             //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
           #endif
-          strcpy((char*)data, "A");
+          strcpy((char*)data, "A");    //get ready to send back an "A" for ACK.
+          
+          //Grab the values from the recieved message
           memcpy(&spd, &buf, 2);
           memcpy(&dir, &buf[2], 2);
           memcpy(&battVoltage, &buf[4], 2);
           memcpy(&messageCount, &buf[6], 1);
+          
           #ifdef debug
             #ifdef showPacketLoss
               static uint8_t lastMessage;
@@ -1058,9 +1069,11 @@ switch(curMode)
               cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
             #endif          
           #endif
+          
+          //Pass the new radio data into the Anemometer object
           Peet.processWirelessData(spd, dir);
         }
-        rf95.send(data, sizeof(data));  //transmit response
+        rf95.send(data, sizeof(data));  //transmit ACK response
         rf95.waitPacketSent();
       }
       else {
@@ -1075,16 +1088,17 @@ switch(curMode)
 }  //loop
 
 //////////////////////////////////////////////////////////Helper Functions//////////////////////////////////////////////////
-float degToRad(float deg) { return (deg * PI / 180); }
+float degToRad(float deg) { return (deg * PI / 180); }  //convert degrees to radians
 
-float radToDeg(float rad) { return (rad * 180 / PI); }
+float radToDeg(float rad) { return (rad * 180 / PI); }  //convert radians to degrees
 
-float ctof(float c) { return c*1.8+32; }
+float ctof(float c) { return c*1.8+32; }   //convert celcius to farhenheit
 
-float ftoc(float f) { return f-32*0.555556; }
+float ftoc(float f) { return f-32*0.555556; }    //convert farhenheit to celcius
 
 //get True Wind Speed
-uint16_t getTWS(uint16_t AWA, uint16_t AWS, int16_t SOG)
+//returns true wind speed given Aparent Wind Angle, Apparent Wind Speed, and Speed Over Ground
+uint16_t getTWS(uint16_t AWA, uint16_t AWS, int16_t SOG)    
 {
   float _AWA = degToRad(AWA);
   float tanAlpha = sin(_AWA)/(float(AWS)/float(SOG)-cos(_AWA));
@@ -1101,6 +1115,8 @@ uint16_t getTWS(uint16_t AWA, uint16_t AWS, int16_t SOG)
 }
 
 //get True Wind Angle
+//returns True Wind Angle given Aparent Wind Angle, Apparent Wind Speed and Speed Over Ground
+//This true wind angle is bow referenced
 uint16_t getTWA(uint16_t AWA, uint16_t AWS, uint16_t SOG)
 {
   float _AWA = degToRad(AWA);
@@ -1122,10 +1138,14 @@ uint16_t getTWA(uint16_t AWA, uint16_t AWS, uint16_t SOG)
 }
 
 //get True Wind Direction
+//Returns True Wind Direction given Apparent Wind Angle, Apparent Wind Speed, Speed Over Ground, and Course Over Ground
+//This is a compass heading based on the given COG
 uint16_t getTWD(uint16_t AWA, uint16_t AWS, uint16_t SOG, uint16_t COG) { 
   return (COG + getTWA(AWA, AWS, SOG) + 360) % 360; 
 }
 
+//Reads the values in the WINDSTAT.LOG file on the SD card and returns the averages by reference.
+//The function always just opens the file and calculates the averages you should check if new information is present before calling this.
 void ProcessStatistics(uint32_t &speedAccum, uint32_t &boatSpeedAccum, uint16_t &AvWindDir)
 {
   windStats.close();  //close the file that has been being logged to
@@ -1167,13 +1187,14 @@ void ProcessStatistics(uint32_t &speedAccum, uint32_t &boatSpeedAccum, uint16_t 
   windStats.close();      //close the file to let the logger have it back
 }
 
-extern "C" char *sbrk(int i);
- 
+//A function that allows for finding out how much free memory is available.
+extern "C" char *sbrk(int i); 
 int freeRam () {
   char stack_dummy = 0;
   return &stack_dummy - sbrk(0);
 }
 ///////////////////////////////////////////////Compass/Accelerometer Helper Functions////////////////////////////////////////////////////
+//Just a way to print the calibration information to the screen
 void displaySensorOffsets(const adafruit_bno055_offsets_t &calibData)
 {
     Serial.print("Accelerometer: ");
@@ -1199,6 +1220,7 @@ void displaySensorOffsets(const adafruit_bno055_offsets_t &calibData)
 }
 
 ///////////////////////////////////////////////14 Segment Display Helper Functions///////////////////////////////////////////////////////
+//displays a fixed string on the display
 void displayString(char s[4]) {
   for(uint8_t i=0; i < 4; i++ ) {
     if(s[i+1] == '.')
@@ -1209,6 +1231,7 @@ void displayString(char s[4]) {
   }
 }
 
+//shows an angle and allows for a last char such as 'T' for true or 'M' for magnetic.  LastChar of null defaults to a degrees symbol.
 void displayAngle(uint16_t val, char lastChar)
 {
   char s[4];
@@ -1223,6 +1246,8 @@ void displayAngle(uint16_t val, char lastChar)
   alpha4.writeDisplay();
 }
 
+//Scrolls a string across the display and returns after scrolling has completed.
+//This function can take consideratble time for longer strings and thus can be interrupted if a gesture is sensed via interrupt.
 void scrollString(const char s[], uint16_t speed)
 {
   uint8_t size = strlen(s) + 1;
@@ -1241,6 +1266,7 @@ void scrollString(const char s[], uint16_t speed)
   delay(speed*2);
 }
 
+//Allows displaying an integer value as the float that it represents.  Thus 123 will be shown as 1.23.  1234 will be shown as 12.34.
 void displayIntFloat(int val, char lastChar = '\0')  //displays 2 digits of precision and expects the value as an int (float val * 100)
 {
   if(lastChar == 'V' || lastChar == 'v')
@@ -1250,21 +1276,22 @@ void displayIntFloat(int val, char lastChar = '\0')  //displays 2 digits of prec
   char s[5];
   sprintf(s,"%i%i%i%i",val/1000%10,val/100%10,val/10%10,val%10);
   if(lastChar == 'V' || lastChar == 'v')
-    alpha4.writeDigitAscii(0,s[0], true);
+    alpha4.writeDigitAscii(0,s[0], true);  //display the decimal point higher up if displaying voltage
   else
     alpha4.writeDigitAscii(0,s[0]);
   
   if(lastChar == 'V' || lastChar == 'v')
     alpha4.writeDigitAscii(1,s[1]);
   else
-    alpha4.writeDigitAscii(1,s[1], true);
+    alpha4.writeDigitAscii(1,s[1], true);   //display the decimal point to give 2 points of precision normally (if lastChar = \0)
 
   alpha4.writeDigitAscii(2,s[2]);
   if(lastChar != '\0') alpha4.writeDigitAscii(3,lastChar);
   else alpha4.writeDigitAscii(3,s[3]);
-  alpha4.writeDisplay();
+  alpha4.writeDisplay();  //finally update the display
 }
 
+//Returns the current barometric pressure as an integer (actual barometric pressure * 100)
 int getBaro()
 {
   if(baroRefAlt == -1) {
@@ -1282,6 +1309,7 @@ int getBaro()
     return round( baro.readPressure()*pow((1-(0.0019812*baroRefAlt)/(baro.readTemperature()+0.0019812*baroRefAlt+273.15)),-5.257)*0.0295301 );
 }
 
+//Reads and displays the current temperature on the display.
 void displayTemp(char units)
 {
   if(units == 'c' || units == 'C')
@@ -1291,6 +1319,8 @@ void displayTemp(char units)
     displayIntFloat(ctof(baro.readTemperature())*100, 'F');   //use baro pressure sensor for temp
     //displayIntFloat(ctof(bno.getTemp())*100,'F');           //use IMU chip for temp
 }
+
+
 ///////////////////////////////////////////////////////////Interrupt Handlers///////////////////////////////////////////////
 #ifndef LoRaRadioPresent  //The anemometer interrupts are not needed if we don't have one connected
   void isrSpeed() {
@@ -1308,7 +1338,11 @@ void isrGesture () {
   gestureSensed = true;
   detachInterrupt(digitalPinToInterrupt(GESTURE_INT));  //trying this because its in the example but it doesn't seem to make any difference.
 }
+
+
 /////////////////////////////////////////////////////LED Ring Handling Functions////////////////////////////////////////////
+
+//Sweeps up red and green on the left and right sides of the display with a yellow pixel fore and aft
 void animateRedGreenWipe(uint8_t wait) {
   //This is a background setting animation.
   uint8_t bottomLED;
@@ -1328,6 +1362,7 @@ void animateRedGreenWipe(uint8_t wait) {
   strip.show();
 } //animateRedGreenWipe
 
+//Wraps a single color around the ring in a circle from the top.
 void animateSolidColor(uint32_t c, uint8_t wait) {
   //This is a background setting animation.
   for(uint8_t i=0; i < strip.numPixels(); i++) {
@@ -1336,11 +1371,15 @@ void animateSolidColor(uint32_t c, uint8_t wait) {
     delay(wait);
   }
 } //animateSolidColor
+
+//Writes a color into the background pixel array
 void setBackgroundPixel (uint8_t pixel, uint32_t color) {
   //sets a pixel color in the strip and also updates the background buffer
   strip.setPixelColor(pixel, color);
   pixelBackground[pixel] = color;
 } //setBackgroundPixel
+
+//Writes the current background pixel array onto the LED ring (essentially clears things to the background)
 void restoreBackground() {
   //This function will restore the pixel values to a blank background value
   for(uint8_t i=0; i < strip.numPixels(); i++) {
@@ -1349,6 +1388,7 @@ void restoreBackground() {
 } //restoreBackground
 
 //This updates the LED ring with the lights corresponding to the passed angle
+//Essentially it updates the led that represents that angle to the specificed color.
 void displayWindPixel (uint16_t angle, uint32_t color)
 {
   static float delta = 360.0 / strip.numPixels() / 2.0;  //static so its only calculated once
@@ -1368,6 +1408,7 @@ void displayWindPixel (uint16_t angle, uint32_t color)
 }
 
 //Just blinks an LED you can set the number of times and the duration of the blinks
+//This only works for the LEDs on the GPIO pins directly on the Arduino board.
 static void blip(int ledPin, int times, int dur) {
   pinMode(ledPin, OUTPUT);
   for (int i = 0; i < times; i++) {
@@ -1545,7 +1586,7 @@ bool initSD() {
   return retval;
 }  //initSD
 
-//This is the callback function for the SdFat file system library so that it can properly timestamp files it modifies and creates
+//This is the callback function for the SdFat file system library so that it can properly timestamp files it modifies and creates on the SD card
 void dateTime(uint16_t* date, uint16_t* time) {
   time_t local;
   local = getLocalTime();
@@ -1675,6 +1716,8 @@ void tcDisable()
 }
 
 //////////////////////////////////////////////////////GPS helper Fucntions/////////////////////////////////////////////////////////////////////
+
+//Returns a time_t (seconds since the epoch) of the current local time.
 time_t getLocalTime()   //this function requires that you edit NeoTime.h to use the POSIX epoch or the time will be off by 30 years.
 {
   time_t utc;
@@ -1699,6 +1742,7 @@ time_t getLocalTime()   //this function requires that you edit NeoTime.h to use 
 }
 
 //this is an endless loop that fetches data from the GPS and returns when you have a valid location date and time.
+//A status string is scrolled on the display to inform the user that we are waiting for the GPS to obtain a valid fix.
 static void waitForFix()
 {
   #ifdef debug
@@ -1779,6 +1823,7 @@ void startGPSFile()
 } // startgpsLog
 
 //Snags the values from the GPS and or other locations and updates the GPX log with a new track segment
+//this function assumes that startGPSFile() has been called previously
 static void WriteGPXLog()
 { 
   // Log the fix information if we have a location and time
@@ -1789,9 +1834,12 @@ static void WriteGPXLog()
     
     while(!gpsLog.isOpen()) gpsLog.open(filename, O_WRITE);
 
-    while(!gpsLog.seekSet(gpsLog.fileSize() - 28));
+    while(!gpsLog.seekSet(gpsLog.fileSize() - 28));  //seeks back to delete the closing tags from the end of the file
+    
+    //starts a new track point record
     gpsLog.print(F("\t\t<trkpt lat=\""));
 
+    //write out each data element only if the fix is valid for that data element
     if (globalFix.valid.location) {
       gpsLog.print(globalFix.latitude(), 7);
       gpsLog.print(F("\" lon=\""));
@@ -1835,10 +1883,10 @@ static void WriteGPXLog()
 
     gpsLog.print(F("\t\t</trkpt>\n"));
 
-    //replace closing tags
+    //replace closing tags that were overwritten from the seekSet()
     gpsLog.print(F("\t</trkseg>\r\n</trk>\r\n</gpx>\r\n"));
 
-    while(!gpsLog.close());
-    blip(RED_LED_PIN, 1, 20);
+    while(!gpsLog.close());  //closing the file flushes the cache and makes the file valid if you lose power without notice.
+    blip(RED_LED_PIN, 1, 20);  //blink the LED to give status that a GPS point has been logged to SD file.
   }
 }
