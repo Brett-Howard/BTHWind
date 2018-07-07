@@ -1751,6 +1751,8 @@ static void waitForFix()
 
   uint16_t lastToggle = millis();
 
+  uint8_t data = 'A';
+
   for (;;) {
     while (Serial1.available()) { gps.handle(Serial1.read()); }
     if (gps.available()) {
@@ -1758,6 +1760,14 @@ static void waitForFix()
       if (globalFix.valid.location && globalFix.valid.date && globalFix.valid.time)
         break; // Got it!
     }
+
+    //reply to mast head transmitter messages to send it (and keep it) in high speed transmission mode while we wait for the GPS Fix
+    #ifdef LoRaRadioPresent
+      if (rf95.available()) {
+        rf95.send(&data, sizeof(data));  //transmit ACK response
+        rf95.waitPacketSent();
+      }
+    #endif
 
     // Slowly flash the LED until we get a fix
     if ((uint16_t) millis() - lastToggle > 1000) {
