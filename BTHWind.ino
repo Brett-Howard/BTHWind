@@ -887,16 +887,16 @@ switch(curMode)
         }
 
         //Get boat heading for TWS calculations
-        //use gps speed if traveling over 2 knot otherwise use the compass speed
+        //use gps heading if traveling over 2 knot otherwise use the compass heading
         if(_SOG_ > 200 && globalFix.valid.heading)
           _COG_ = globalFix.heading();
         else {
           static uint8_t system, gyro, accel, mag;
           system = gyro = accel = mag = 0;
 
-          //only use compass speed if IMU has a quality fix
+          //only use compass heading if IMU has a quality fix
           bno.getCalibration(&system, &gyro, &accel, &mag);
-          if(mag > 0) {   //if the compass is within calibaration
+          if(mag > 1) {   //if the compass is within calibaration
             //variance added to compass heading becasue its magnetic referenced and we want wind true referenced.
             _COG_ = int(round(compEvent.orientation.x) + variance + 360) % 360;  //don't need to check for ==360 rounding errors here because the math works out the same
           }
