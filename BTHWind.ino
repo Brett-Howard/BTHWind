@@ -662,6 +662,12 @@ switch(curMode)
       else if(millis() > tempTimer+25000 && millis() < tempTimer+28000) {
         displayAngle(AvWindDir, '\0');
       }
+      else if(millis() > tempTimer+28000 && millis() < tempTimer+29000) {
+        displayString("BARO");
+      }
+      else if(millis() > tempTimer+29000 && millis() < tempTimer+32000) {
+        displayIntFloat(getBaro(), '\0');
+      }
       else
         tempTimer = millis();    //restart the menu again
 
