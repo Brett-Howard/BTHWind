@@ -697,7 +697,7 @@ switch(curMode)
 
       bno.getCalibration(&system, &gyro, &accel, &mag);
 
-      if(mag < 1)
+      if(mag < 2)
         displayString("CAL ");
       else {
         //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
