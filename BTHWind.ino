@@ -448,7 +448,7 @@ void loop() {
   static Mode curMode = TrueWind;    //default state upon power up is True Wind
   static Mode prevMode;
   uint8_t gesture; 
-  static uint16_t w,wndSpd,windMax = 0;
+  static uint16_t w,wndSpd,windMax = 0,boatMax = 0;
   static bool firstEntry = 1;
   static int curHeelAngle;
   static uint32_t tempTimer;
@@ -622,7 +622,7 @@ switch(curMode)
         sprintf(temp, "%02u%02u", month(startTime), day(startTime));
         displayString(temp);
       }
-      if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {   //this timing method is really annoying but its good to keep loop moving faster
+      else if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {   //this timing method is really annoying but its good to keep loop moving faster
         displayString("STRT");
       }
       else if(millis() > tempTimer+5000 && millis() < tempTimer+8000) {
@@ -644,28 +644,34 @@ switch(curMode)
       else if(millis() > tempTimer+13000 && millis() < tempTimer+16000) {
         displayIntFloat(boatSpeedAccum, '\0');
       }
-      else if(millis() > tempTimer+16000 && millis() < tempTimer+17000) {  
-        displayString("AVG ");
+      else if(millis() > tempTimer+16000 && millis() < tempTimer+17000) {
+        displayString("MSOG");
       }
       else if(millis() > tempTimer+17000 && millis() < tempTimer+20000) {
-        displayIntFloat(speedAccum, '\0');
+        displayIntFloat(boatMax, '\0');
       }
-      else if(millis() > tempTimer+20000 && millis() < tempTimer+21000) {
-        displayString("MAX ");
+      else if(millis() > tempTimer+20000 && millis() < tempTimer+21000) {  
+        displayString("AVG ");
       }
       else if(millis() > tempTimer+21000 && millis() < tempTimer+24000) {
-        displayIntFloat(windMax, '\0');
+        displayIntFloat(speedAccum, '\0');
       }
       else if(millis() > tempTimer+24000 && millis() < tempTimer+25000) {
-        displayString("AvWD");
+        displayString("MAX ");
       }
       else if(millis() > tempTimer+25000 && millis() < tempTimer+28000) {
-        displayAngle(AvWindDir, '\0');
+        displayIntFloat(windMax, '\0');
       }
       else if(millis() > tempTimer+28000 && millis() < tempTimer+29000) {
-        displayString("BARO");
+        displayString("AvWD");
       }
       else if(millis() > tempTimer+29000 && millis() < tempTimer+32000) {
+        displayAngle(AvWindDir, '\0');
+      }
+      else if(millis() > tempTimer+32000 && millis() < tempTimer+33000) {
+        displayString("BARO");
+      }
+      else if(millis() > tempTimer+33000 && millis() < tempTimer+36000) {
         displayIntFloat(getBaro(), '\0');
       }
       else
@@ -884,6 +890,7 @@ switch(curMode)
         if(globalFix.valid.speed) {
           _SOG_ = globalFix.speed() * 100;   //get GPS speed
           statAry[i_log].boatSpeed = _SOG_;
+          if(_SOG_ > boatMax) { boatMax = _SOG_; }
         }
 
         //Get boat heading for TWS calculations
