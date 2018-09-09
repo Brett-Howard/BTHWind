@@ -615,46 +615,54 @@ switch(curMode)
 
       //show the values on the display
       if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
+        displayString("DATE");
+      }
+      else if(millis() > tempTimer+1000 && millis() < tempTimer+4000) {
+        char temp[5];
+        sprintf(temp, "%02u%02u", month(startTime), day(startTime));
+        displayString(temp);
+      }
+      if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {   //this timing method is really annoying but its good to keep loop moving faster
         displayString("STRT");
       }
-      else if(millis() > tempTimer+1000 && millis() < tempTimer+3000) {
+      else if(millis() > tempTimer+5000 && millis() < tempTimer+8000) {
         char temp[5];
         sprintf(temp, "%02u%02u", hour(startTime), minute(startTime));
         displayString(temp);
       }
-      else if(millis() > tempTimer+3000 && millis() < tempTimer+4000) {
+      else if(millis() > tempTimer+8000 && millis() < tempTimer+9000) {
         displayString("END ");
       }
-      else if(millis() > tempTimer+4000 && millis() < tempTimer+6000) {
+      else if(millis() > tempTimer+9000 && millis() < tempTimer+12000) {
         char temp[5];
         sprintf(temp, "%02u%02u", hour(endTime), minute(endTime));
         displayString(temp);
       }
-      else if(millis() > tempTimer+6000 && millis() < tempTimer+7000) {
+      else if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
         displayString("ASOG");
       }
-      else if(millis() > tempTimer+7000 && millis() < tempTimer+9000) {
+      else if(millis() > tempTimer+13000 && millis() < tempTimer+16000) {
         displayIntFloat(boatSpeedAccum, '\0');
       }
-      else if(millis() > tempTimer+9000 && millis() < tempTimer+10000) {  
+      else if(millis() > tempTimer+16000 && millis() < tempTimer+17000) {  
         displayString("AVG ");
       }
-      else if(millis() > tempTimer+10000 && millis() < tempTimer+12000) {
+      else if(millis() > tempTimer+17000 && millis() < tempTimer+20000) {
         displayIntFloat(speedAccum, '\0');
       }
-      else if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
+      else if(millis() > tempTimer+20000 && millis() < tempTimer+21000) {
         displayString("MAX ");
       }
-      else if(millis() > tempTimer+13000 && millis() < tempTimer+15000) {
+      else if(millis() > tempTimer+21000 && millis() < tempTimer+24000) {
         displayIntFloat(windMax, '\0');
       }
-      else if(millis() > tempTimer+15000 && millis() < tempTimer+16000) {
+      else if(millis() > tempTimer+24000 && millis() < tempTimer+25000) {
         displayString("AvWD");
       }
-      else if(millis() > tempTimer+16000 && millis() < tempTimer+18000) {
+      else if(millis() > tempTimer+25000 && millis() < tempTimer+28000) {
         displayAngle(AvWindDir, '\0');
       }
-      else if(millis() > tempTimer+18000)
+      else
         tempTimer = millis();    //restart the menu again
 
       ////////////Transition State
