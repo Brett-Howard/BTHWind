@@ -32,6 +32,8 @@
 
 #define batteryLogInterval 600000  //every 10 minutes
 
+#define radioTimeoutReset 5000 //reset radio reception variables if no message is received for this period.
+
 //#define RGB
 #define RGBW              //These defines will change the instantiation of the LED ring and the color table.
 
@@ -149,6 +151,8 @@ bool GPXLogging;
 time_t startTime, endTime;
 int32_t homeLat, homeLon;
 float homeStatRadius, homeGPSRadius;
+uint32_t lastMessageTime = 0;
+bool linkLost;
 
 TimeChangeRule DSTrule, STrule;
 
@@ -623,7 +627,7 @@ switch(curMode)
         sprintf(temp, "%02u%02u", month(startTime), day(startTime));
         displayString(temp);
       }
-      else if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {   //this timing method is really annoying but its good to keep loop moving faster
+      else if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {  
         displayString("STRT");
       }
       else if(millis() > tempTimer+5000 && millis() < tempTimer+8000) {
@@ -1036,13 +1040,18 @@ switch(curMode)
   //update maximum wind speed if needed  
   if(wndSpd > windMax) { windMax = wndSpd; }  //Only takes a single datapoint for a max but remember it comes from a moving average filter.
 
-  //handle radio traffic
+  //handle radio traffic and receive messages
   //Message format 2 bytes per field:
   //Field 1: (wind speed in knots * 100)
   //Field 2: Apparent Wind Direction (0-359) 0=bow (if offset is set properly)
   //Field 3: Battery voltage*100
   //Field 4: Free running 8-bit counter (for message loss detection) Each message should be sequential. 
   #ifdef LoRaRadioPresent 
+    if (linkLost) {
+      battVoltage = 0;
+      //speed and direction are already handled by the slowTimer function in the Anemometer object
+      //messageCount resetting is not needed.
+    }
     if (rf95.available())
     {
       uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
@@ -1051,6 +1060,7 @@ switch(curMode)
 
       if (rf95.recv(buf, &len))
       {
+        linkLost = false;   //link is up because we're receiving messages.
         uint16_t spd;
         int16_t dir;
         uint8_t messageCount;
@@ -1065,6 +1075,7 @@ switch(curMode)
           #ifdef debug
             //cout << "RSSI: " << rf95.lastRssi() << " SNR: " << rf95.lastSNR() << endl;
           #endif
+          lastMessageTime = millis();
           strcpy((char*)data, "A");    //get ready to send back an "A" for ACK.
           
           //Grab the values from the recieved message
@@ -1351,11 +1362,16 @@ void displayTemp(char units)
   void isrDirection() {
     Peet.processDirTransition();
   }
-  void TC5_Handler (void) {   //This timer gets moved to the mast head in a wireless version of this project
-    Peet.slowTimer();
-    TC5->COUNT16.INTFLAG.bit.MC0 = 1; //don't change this, it's part of the timer code
-  }
 #endif
+void TC5_Handler (void) {   //This slow timer is duplicated at the mast head to call the slowTimer and is used to reset message vars on the base.
+    #ifndef LoRaRadioPresent
+      Peet.slowTimer();
+    #endif
+    TC5->COUNT16.INTFLAG.bit.MC0 = 1; //don't change this, it's part of the timer code
+    if(millis() > lastMessageTime + radioTimeoutReset) {
+      linkLost = true;
+    }
+}
 void isrGesture () {
   gestureSensed = true;
   detachInterrupt(digitalPinToInterrupt(GESTURE_INT));  //trying this because its in the example but it doesn't seem to make any difference.
