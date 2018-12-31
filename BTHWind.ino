@@ -22,7 +22,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-#define debug                   //comment this out to not depend on USB uart.
+//#define debug                   //comment this out to not depend on USB uart.
 //#define showDistFromHome        //show distance from home once per second (requires debug)
 //#define showClockTime           //prints time to console every time it is fetched (requires debug)
 //#define noisyDebug              //For those days when you need more information (this also requires debug to be on)
@@ -817,7 +817,6 @@ switch(curMode)
   }
   ///////////End of switch that handles menu items
   
-  
   //Fetch all data from the GPS UART and feed it to the NeoGPS object
   //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
   while (Serial1.available()) { gps.handle(Serial1.read()); }
@@ -864,8 +863,7 @@ switch(curMode)
     static uint32_t logTimer = 0;
     uint16_t elements = sizeof(statAry)/sizeof(statAry[0]);  //only done so you don't have to modify array size in two places
 
-    if(millis() > logTimer+1000) {   //capture a new data point "about" once per second
-
+    if(millis() > logTimer+1000) {   //capture a new data point "about" once per second    
       static uint8_t bytesWritten = 0;
       
       #ifdef debug
@@ -942,11 +940,14 @@ switch(curMode)
             accumCosTWD += statAry[i].cosTWD;
             accumBoatSpeed += statAry[i].boatSpeed;
           }
-          accumSpeed /= elements;
-          accumSinTWD /= elements;
-          accumCosTWD /= elements;
-          accumBoatSpeed /= elements;
-        
+          if(elements)  //double check to protect from dividing by zero.
+          {
+            accumSpeed /= elements;
+            accumSinTWD /= elements;
+            accumCosTWD /= elements;
+            accumBoatSpeed /= elements;
+          }
+       
           if(windStats.open("WINDSTAT.LOG", O_WRITE | O_CREAT | O_APPEND)  || windStats.isOpen()) { //if new create file or if already open continue.
               windStats.print(accumSpeed); windStats.print(',');
               windStats.print(accumSinTWD); windStats.print(',');
@@ -978,7 +979,7 @@ switch(curMode)
         char startStr[22], endStr[22];
         sprintf(startStr, "%4d-%02d-%02d %02d:%02d", year(startTime), month(startTime), day(startTime), hour(startTime), minute(startTime));
         sprintf(endStr, "%4d-%02d-%02d %02d:%02d", year(endTime), month(endTime), day(endTime), hour(endTime), minute(endTime));
-
+ 
         //create the file if it doesn't already exist.  Put field labels in first.
         if(!sd.exists("/!LOG/LOG.CSV")) {
           if(logfile.open("/!LOG/LOG.CSV", O_WRITE | O_CREAT)) {
@@ -1035,7 +1036,7 @@ switch(curMode)
     }  //end of once per second
   } //if Peet.available();
     
-  //update maximum wind speed if needed  
+  //update maximum wind speed if needed
   if(wndSpd > windMax) { windMax = wndSpd; }  //Only takes a single datapoint for a max but remember it comes from a moving average filter.
 
   //handle radio traffic
@@ -1080,7 +1081,7 @@ switch(curMode)
               static uint8_t lastMessage;
               static uint16_t packetsLost = 0;
               static uint32_t packetsReceived = 0;
-              if(messageCount != uint8_t(lastMessage + 1)) {
+              if(messageCount != uint8_t(lastMessage + 1)) {   //if the message count isn't sequential
                 ++packetsLost;
                 cout << "Packet lost!!!!!!" << endl << endl;
                 cout << "Packet Loss: " << double(packetsLost) / double(packetsReceived) * 100.0 << "%" << endl;
@@ -1199,10 +1200,13 @@ void ProcessStatistics(uint32_t &speedAccum, uint32_t &boatSpeedAccum, uint16_t 
       boatSpeedAccum += l;
       count++;
     }
-    speedAccum /= count;
-    sinAccum /= count;
-    cosAccum /= count;
-    boatSpeedAccum /= count;
+    if(count)  //double check to make sure we don't divide by zero
+    {
+      speedAccum /= count;
+      sinAccum /= count;
+      cosAccum /= count;
+      boatSpeedAccum /= count;
+    }
     //cout << "spdAcc:" << speedAccum << " sinAcc:" << sinAccum << " cosAcc:" << cosAccum << endl;
     //cout << int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360 << endl;
     AvWindDir = int(round(radToDeg(atan2(sinAccum, cosAccum))) + 360) % 360;
