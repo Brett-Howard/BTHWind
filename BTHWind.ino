@@ -22,7 +22,7 @@
 //BMP280 - 77h
 //LED Backpack - 70h
 
-//#define debug                   //comment this out to not depend on USB uart.
+#define debug                   //comment this out to not depend on USB uart.
 //#define showDistFromHome        //show distance from home once per second (requires debug)
 //#define showClockTime           //prints time to console every time it is fetched (requires debug)
 //#define noisyDebug              //For those days when you need more information (this also requires debug to be on)
@@ -117,7 +117,7 @@ SdFile gpsLog;      //used for the GPX log output
 SdFile battFile;    //used to log battery voltage over time
 SdFile logfile;     //used for sail stats logging
 
-ArduinoOutStream cout(Serial);
+ArduinoOutStream cout(Serial);  //allows "cout <<" to go to the Serial port
 
 Anemometer Peet(ANEMOMETER_SPEED_PIN, ANEMOMETER_DIR_PIN, 8, 125);
 Adafruit_AlphaNum4 alpha4 = Adafruit_AlphaNum4();
@@ -440,6 +440,7 @@ void setup() {
       gps.handle(Serial1.read());   //inject stuff into the GPS object until a valid fix is puked out
     
   globalFix = gps.read();       //snag the fix to prime the pump.
+  startTime = getLocalTime();
 }  //setup
 
 void displayIntFloat(int, char);  //compiler wants this function and only this one listed here for some reason.
@@ -452,7 +453,7 @@ void loop() {
   static uint16_t w,wndSpd,windMax = 0,boatMax = 0;
   static bool firstEntry = 1;
   static int curHeelAngle;
-  static uint32_t tempTimer;
+  static uint32_t menuTimer;
   static bool locked = false;
   static bool newSDData = false;
   static uint16_t battVoltage;
@@ -540,9 +541,9 @@ switch(curMode)
       }
       ///////do AppWind
       if(wndSpd > 0) {
-        if(millis() > tempTimer + windUpdateRate) {
+        if(millis() > menuTimer + windUpdateRate) {
           displayIntFloat(wndSpd,'\0');
-          tempTimer = millis();
+          menuTimer = millis();
         }
       }
       else { displayString("CALM"); }
@@ -578,7 +579,7 @@ switch(curMode)
       //_SOG = 700;     //remove this later (only for testing)
       //_AWA = 88;
       //_AWS = 284;
-      if(millis() > tempTimer + windUpdateRate) {
+      if(millis() > menuTimer + windUpdateRate) {
         #ifdef noisyDebug
           cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
         #endif
@@ -589,7 +590,7 @@ switch(curMode)
         }
         else { displayString("CALM"); }
 
-        tempTimer = millis();
+        menuTimer = millis();
       }   
       
       //////////////Transition State
@@ -601,7 +602,11 @@ switch(curMode)
   
   
   case WindStats:     //displays statistical information about the current trip
+      char temp[5];
       if(firstEntry || newSDData) {
+        #ifdef debug
+          cout << "got new SD data" << endl;
+        #endif
         scrollString("SAIL STATS\0", menuDelay);
         firstEntry = false;
         newSDData = false;
@@ -610,73 +615,70 @@ switch(curMode)
         
         ProcessStatistics(speedAccum, boatSpeedAccum, AvWindDir);  //read from global WINDSTAT.LOG and results returned by reference
         
-        tempTimer = millis();  //start the menu back at the top
+        menuTimer = millis();  //start the menu back at the top
       }
       /////////////do WindStats
 
       //show the values on the display
-      if(millis() > tempTimer && millis() < tempTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
+      if(millis() > menuTimer && millis() < menuTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
         displayString("DATE");
       }
-      else if(millis() > tempTimer+1000 && millis() < tempTimer+4000) {
-        char temp[5];
+      else if(millis() >= menuTimer+1000 && millis() < menuTimer+4000) {
         sprintf(temp, "%02u%02u", month(startTime), day(startTime));
         displayString(temp);
       }
-      else if(millis() > tempTimer+4000 && millis() < tempTimer+5000) {   //this timing method is really annoying but its good to keep loop moving faster
+      else if(millis() >= menuTimer+4000 && millis() < menuTimer+5000) {
         displayString("STRT");
       }
-      else if(millis() > tempTimer+5000 && millis() < tempTimer+8000) {
-        char temp[5];
+      else if(millis() >= menuTimer+5000 && millis() < menuTimer+8000) {
         sprintf(temp, "%02u%02u", hour(startTime), minute(startTime));
         displayString(temp);
       }
-      else if(millis() > tempTimer+8000 && millis() < tempTimer+9000) {
+      else if(millis() >= menuTimer+8000 && millis() < menuTimer+9000) {
         displayString("END ");
       }
-      else if(millis() > tempTimer+9000 && millis() < tempTimer+12000) {
-        char temp[5];
+      else if(millis() >= menuTimer+9000 && millis() < menuTimer+12000) {
         sprintf(temp, "%02u%02u", hour(endTime), minute(endTime));
         displayString(temp);
       }
-      else if(millis() > tempTimer+12000 && millis() < tempTimer+13000) {
+      else if(millis() >= menuTimer+12000 && millis() < menuTimer+13000) {
         displayString("ASOG");
       }
-      else if(millis() > tempTimer+13000 && millis() < tempTimer+16000) {
+      else if(millis() >= menuTimer+13000 && millis() < menuTimer+16000) {
         displayIntFloat(boatSpeedAccum, '\0');
       }
-      else if(millis() > tempTimer+16000 && millis() < tempTimer+17000) {
+      else if(millis() >= menuTimer+16000 && millis() < menuTimer+17000) {
         displayString("MSOG");
       }
-      else if(millis() > tempTimer+17000 && millis() < tempTimer+20000) {
+      else if(millis() >= menuTimer+17000 && millis() < menuTimer+20000) {
         displayIntFloat(boatMax, '\0');
       }
-      else if(millis() > tempTimer+20000 && millis() < tempTimer+21000) {  
-        displayString("AVG ");
+      else if(millis() >= menuTimer+20000 && millis() < menuTimer+21000) {  
+        displayString("AVGW");
       }
-      else if(millis() > tempTimer+21000 && millis() < tempTimer+24000) {
+      else if(millis() >= menuTimer+21000 && millis() < menuTimer+24000) {
         displayIntFloat(speedAccum, '\0');
       }
-      else if(millis() > tempTimer+24000 && millis() < tempTimer+25000) {
-        displayString("MAX ");
+      else if(millis() >= menuTimer+24000 && millis() < menuTimer+25000) {
+        displayString("MAXW");
       }
-      else if(millis() > tempTimer+25000 && millis() < tempTimer+28000) {
+      else if(millis() >= menuTimer+25000 && millis() < menuTimer+28000) {
         displayIntFloat(windMax, '\0');
       }
-      else if(millis() > tempTimer+28000 && millis() < tempTimer+29000) {
+      else if(millis() >= menuTimer+28000 && millis() < menuTimer+29000) {
         displayString("AvWD");
       }
-      else if(millis() > tempTimer+29000 && millis() < tempTimer+32000) {
+      else if(millis() >= menuTimer+29000 && millis() < menuTimer+32000) {
         displayAngle(AvWindDir, '\0');
       }
-      else if(millis() > tempTimer+32000 && millis() < tempTimer+33000) {
+      else if(millis() >= menuTimer+32000 && millis() < menuTimer+33000) {
         displayString("BARO");
       }
-      else if(millis() > tempTimer+33000 && millis() < tempTimer+36000) {
+      else if(millis() >= menuTimer+33000 && millis() < menuTimer+36000) {
         displayIntFloat(getBaro(), '\0');
       }
-      else
-        tempTimer = millis();    //restart the menu again
+      else if(millis() > menuTimer+36000)
+        menuTimer = millis();    //restart the menu again
 
       ////////////Transition State
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
@@ -758,9 +760,9 @@ switch(curMode)
         firstEntry = false;
       }
       ////////////////Do Baro
-      if(millis() > tempTimer+1000) { 
+      if(millis() > menuTimer+1000) { 
         displayIntFloat(getBaro(), '\0');
-        tempTimer = millis(); 
+        menuTimer = millis(); 
       } 
       ////////////////Transition State
       if(gesture == DIR_LEFT) { curMode = Temp; firstEntry = true; }
@@ -776,9 +778,9 @@ switch(curMode)
       }
       ///////////////Do Temp
       //update temp only once per second but in a non blocking way that doesn't slow down gesture response.
-      if(millis() > tempTimer+1000) { 
+      if(millis() > menuTimer+1000) { 
         displayTemp(tempUnits); 
-        tempTimer = millis(); 
+        menuTimer = millis(); 
       } 
       ///////////////Transition State
       if(gesture == DIR_LEFT) { curMode = MastBatt; firstEntry = true; }
@@ -803,12 +805,12 @@ switch(curMode)
       if(firstEntry) {
         scrollString("Reduce Heel\0", menuDelay/2);
         firstEntry = false;
-        tempTimer = millis();
+        menuTimer = millis();
       }
-      if(millis() > tempTimer && millis() < tempTimer+5000) {
+      if(millis() > menuTimer && millis() < menuTimer+5000) {
         displayAngle(curHeelAngle, '\0');
       }
-      if(millis() > tempTimer+5000) {
+      if(millis() > menuTimer+5000) {
         firstEntry = true;  //set so that upon returning you display menu heading
       }
       break;
