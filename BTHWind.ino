@@ -193,7 +193,7 @@ void setup() {
   strip.show(); // Initialize all pixels to 'off'
 
   alpha4.begin(0x70);  // pass in the address
-  scrollString("BTHWind\0", 175);
+  scrollString("BTHWind\0", 250);
   
 ///////////////////////////////////////Startup Barometric Sensor/////////////////////////////////////////////////////
   if (!baro.begin()) {
@@ -1533,7 +1533,7 @@ static bool readConfig () {
       configFile.print(F("BowOffset=337\n"));
       configFile.print(F("MagVariance=15\n"));
       configFile.print(F("HeelAngle=15\n"));
-      configFile.print(F("MenuScrollSpeed=150\n"));
+      configFile.print(F("MenuScrollSpeed=100\n"));
       configFile.print(F("TempUnits=f\n"));
       configFile.print(F("SpeedMAD=5\n"));          
       configFile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
