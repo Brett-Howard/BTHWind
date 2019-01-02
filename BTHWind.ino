@@ -1799,7 +1799,11 @@ static void waitForFix()
 
   uint16_t lastToggle = millis();
 
-  uint8_t data = 'A';
+  #ifdef LoRaRadioPresent
+    uint8_t data = 'A';
+    uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
+    uint8_t len = sizeof(buf);
+  #endif
 
   for (;;) {
     while (Serial1.available()) { gps.handle(Serial1.read()); }
@@ -1812,8 +1816,10 @@ static void waitForFix()
     //reply to mast head transmitter messages to send it (and keep it) in high speed transmission mode while we wait for the GPS Fix
     #ifdef LoRaRadioPresent
       if (rf95.available()) {
-        rf95.send(&data, sizeof(data));  //transmit ACK response
-        rf95.waitPacketSent();
+        if (rf95.recv(buf, &len)) {
+          rf95.send(&data, sizeof(data));  //transmit ACK response
+          rf95.waitPacketSent();
+        }
       }
     #endif
 
