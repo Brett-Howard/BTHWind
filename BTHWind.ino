@@ -284,9 +284,6 @@ void setup() {
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
 
-  //wait for fix needs to happen after the radio is initialized so that the replies in this function starts up the mast head unit.
-  waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
-
 ///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
   if(initSD()) {
     //Serial.print(F("Card size: ")); Serial.print(sd.card()->cardSize() * 0.000512 + 0.5); Serial.println(" MiB");
@@ -432,13 +429,15 @@ void setup() {
   #ifndef LoRaRadioPresent
     attachInterrupt(digitalPinToInterrupt(ANEMOMETER_SPEED_PIN), isrSpeed, FALLING);
     attachInterrupt(digitalPinToInterrupt(ANEMOMETER_DIR_PIN), isrDirection, FALLING);
-    tcConfigure(1000);  //1 second timer 
   #endif
-    //if there is a LoRa radio the radio data is polled on and given to the anemometer object when received in the main loop.
-
+  //if there is a LoRa radio the radio data is polled on and given to the anemometer object when received in the main loop.  
+  tcConfigure(1000);  //1 second timer 
+  
   //setup inerrupt to handle the gesture sensor
   attachInterrupt(digitalPinToInterrupt(GESTURE_INT),isrGesture, FALLING);
   
+  waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
+
   //Set LED ring brightness and animate the background into place
   uint16_t w;
   apds.readAmbientLight(w);
@@ -1830,7 +1829,6 @@ static void waitForFix()
       }
     #endif
 
-    // Slowly flash the LED until we get a fix
     if ((uint16_t) millis() - lastToggle > 1000) {
       lastToggle += 1000;
       scrollString( "WAITING FOR GPS FIX\0", 150 );
