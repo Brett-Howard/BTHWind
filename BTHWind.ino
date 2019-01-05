@@ -250,8 +250,6 @@ void setup() {
   gps.send_P( &gpsPort, F("PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0") ); // 1 RMC & GGA  (need GGA for Altitude, Sat Count and Hdop)
   SdFile::dateTimeCallback(dateTime);  //register date time callback for file system
 
-  waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
-
 //////////////////////////////////////////////////////Setup LoRa Radio//////////////////////////////////////////////////////
   #ifdef LoRaRadioPresent
     
@@ -285,6 +283,10 @@ void setup() {
     rf95.setTxPower(13);  //leaving at the default power because this is plugged in (mashead is at 5dBm)
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
+
+  //wait for fix needs to happen after the radio is initialized so that the replies in this function starts up the mast head unit.
+  waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
+
 ///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
   if(initSD()) {
     //Serial.print(F("Card size: ")); Serial.print(sd.card()->cardSize() * 0.000512 + 0.5); Serial.println(" MiB");
@@ -315,9 +317,14 @@ void setup() {
   uint8_t system, gyro, accel, mag;
   system = gyro = accel = mag = 0;
   
+  char tmp[13];
+
   //if there isn't a IMU calibration file print status while you calibrate
   if(!sd.exists("/!CONFIG/IMUCAL.CSV")) {
     displayString("IMU?");
+    delay(3000);
+    displayString("SGAM");
+    delay(4000);
     while(system < 3 || gyro < 3 || accel < 3 || mag < 3) {
       bno.getCalibration(&system, &gyro, &accel, &mag);
       Serial.print("Sys:");
@@ -328,6 +335,8 @@ void setup() {
       Serial.print(accel, DEC);
       Serial.print(" M:");
       Serial.println(mag, DEC);
+      sprintf(tmp, "%d%d%d%d", system, gyro, accel, mag);
+      displayString(tmp);
     }
   }
   
@@ -410,7 +419,6 @@ void setup() {
   localTZ.setRules(DSTrule, STrule);
 
   //write update rate into the GPS  (has to be moved here after we've fetched the value from the config)
-  char tmp[13];
   sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
   gps.send( &gpsPort, tmp ); //set fix update rate
   
@@ -1816,10 +1824,9 @@ static void waitForFix()
     //reply to mast head transmitter messages to send it (and keep it) in high speed transmission mode while we wait for the GPS Fix
     #ifdef LoRaRadioPresent
       if (rf95.available()) {
-        if (rf95.recv(buf, &len)) {
-          rf95.send(&data, sizeof(data));  //transmit ACK response
-          rf95.waitPacketSent();
-        }
+        rf95.recv(buf, &len);
+        rf95.send(&data, sizeof(data));  //transmit ACK response
+        rf95.waitPacketSent();
       }
     #endif
 
