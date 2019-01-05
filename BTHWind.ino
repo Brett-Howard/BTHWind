@@ -1808,7 +1808,7 @@ static void waitForFix()
   uint16_t lastToggle = millis();
 
   #ifdef LoRaRadioPresent
-    uint8_t data = 'A';
+    uint8_t data[3] = "A\0";
     uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
     uint8_t len = sizeof(buf);
   #endif
@@ -1825,7 +1825,7 @@ static void waitForFix()
     #ifdef LoRaRadioPresent
       if (rf95.available()) {
         rf95.recv(buf, &len);
-        rf95.send(&data, sizeof(data));  //transmit ACK response
+        rf95.send(data, sizeof(data));  //transmit ACK response
         rf95.waitPacketSent();
       }
     #endif
@@ -1838,6 +1838,8 @@ static void waitForFix()
       #endif
     }
   }
+
+  
   #ifdef debug
     Serial.println();
   #endif
