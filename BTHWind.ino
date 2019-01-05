@@ -284,6 +284,9 @@ void setup() {
     rf95.setModemConfig(RH_RF95::ModemConfigChoice::Bw125Cr45Sf128);
   #endif
 
+  //wait for fix tries to reply to the mast head if it can thus waiting for fix must be after radio init.
+  waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
+
 ///////////////////////////////////////////Initialize SD Card/////////////////////////////////////////////////////////
   if(initSD()) {
     //Serial.print(F("Card size: ")); Serial.print(sd.card()->cardSize() * 0.000512 + 0.5); Serial.println(" MiB");
@@ -435,8 +438,6 @@ void setup() {
   
   //setup inerrupt to handle the gesture sensor
   attachInterrupt(digitalPinToInterrupt(GESTURE_INT),isrGesture, FALLING);
-  
-  waitForFix();  //Sit here and wait until the GPS locks onto the network of sats.
 
   //Set LED ring brightness and animate the background into place
   uint16_t w;
