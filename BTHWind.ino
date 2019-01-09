@@ -470,7 +470,7 @@ void loop() {
   static uint16_t battVoltage;
   static sensors_event_t compEvent;
   static uint8_t compTimer;
-  static uint32_t battTimer;
+  static uint32_t battTimer = 0;
   static bool GPXLogStarted = false;
   static uint32_t speedAccum, boatSpeedAccum;
   static uint16_t AvWindDir;
@@ -1057,7 +1057,7 @@ switch(curMode)
   //Field 3: Battery voltage*100
   //Field 4: Free running 8-bit counter (for message loss detection) Each message should be sequential. 
   #ifdef LoRaRadioPresent
-    if (linkLost) {
+    if (linkLost) {  //flag from the once per second timer ISR
       battVoltage = 0;
       //speed and direction are already handled by the slowTimer function in the Anemometer object
       //messageCount resetting is not needed.
@@ -1070,6 +1070,7 @@ switch(curMode)
 
       if (rf95.recv(buf, &len))
       {
+        blip(GREEN_LED_PIN, 1, 200);
         linkLost = false;   //link is up because we're receiving messages.
         uint16_t spd;
         int16_t dir;
@@ -1546,13 +1547,13 @@ static bool readConfig () {
       configFile.print(F("SpeedMAD=5\n"));          
       configFile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
       configFile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
-      configFile.print(F("GPSUpdateRate=1000\n"));
+      configFile.print(F("GPSUpdateRate=1000\n"));    //1Hz 
       configFile.print(F("BaroRefAlt=374\n"));         //374 feet is full pool elevation for Fern Ridge Reservoir, Eugene, OR
       configFile.print(F("GPXLogging=true\n"));
       configFile.print(F("HomeLat=441189070\n"));       //location of slip B32 at Richardson Park Marina
       configFile.print(F("HomeLon=-1233155660\n"));
       configFile.print(F("HomeStatRadius=350\n"));         //covers just about to the edge of the Eugene Yacht Club
-      configFile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thward false positives.
+      configFile.print(F("HomeGPSRadius=50\n"));           //set to be fairly small but big enough to thwart false positives.
       configFile.print(F("TrackName=Uncomfortably Level\n"));  //Boat name
       configFile.print(F("\n"));
       configFile.print(F("DSTName=PDT\n"));          //defaults to US Pacific
