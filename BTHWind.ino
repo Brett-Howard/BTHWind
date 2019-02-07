@@ -809,7 +809,7 @@ switch(curMode)
       ///////////////Do MastBatt
       displayIntFloat(battVoltage, 'V');
       ///////////////Transition State
-      if(gesture == DIR_LEFT) { curMode = SOG; firstEntry = true; }
+      if(gesture == DIR_LEFT) { curMode = CompHead; firstEntry = true; }
       else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
       else if(gesture == DIR_UP || gesture == DIR_DOWN) { curMode = MastBatt; firstEntry = true; }
       break;
