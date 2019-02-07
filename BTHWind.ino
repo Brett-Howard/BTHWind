@@ -29,6 +29,8 @@
 //#define showReceivedPackets     //show recived messages from the mast head unit as they come in
 //#define showPacketLoss          //print packet lost messages
 #define LoRaRadioPresent          //comment this line out to start using the unit with a wireless wind transducer
+#define useBaroTemp               //Use the BMP280 barometric pressure temp sensor
+//#define useBnoTemp              //Use the BNO055 temperature sensor
 
 #define batteryLogInterval 600000   //every 10 minutes
 #define radioTimeoutReset 5000      //reset radio reception variables if no message is received for this period.
@@ -1058,7 +1060,7 @@ switch(curMode)
   //Field 4: Free running 8-bit counter (for message loss detection) Each message should be sequential. 
   #ifdef LoRaRadioPresent
     if (linkLost) {  //flag from the once per second timer ISR
-      battVoltage = 0;
+      battVoltage = 999;
       //speed and direction are already handled by the slowTimer function in the Anemometer object
       //messageCount resetting is not needed.
     }
@@ -1079,7 +1081,7 @@ switch(curMode)
         if(stricmp((char*)buf,"McFly") == 0) {
           strcpy((char*)data, "HiBiff");   //first reply of HiBiff mostly just as a joke.  Mast head doesn't care what it gets back really.
           #ifdef debug
-            cout << "Got McFly?...  Sending \"HiBiff\"" << endl;
+            cout << "Time = " << millis() << " Got McFly?...  Sending \"HiBiff\"" << endl;
           #endif
         }
         else {
@@ -1110,7 +1112,7 @@ switch(curMode)
               lastMessage = messageCount;
             #endif
             #ifdef showReceivedPackets
-              cout << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
+              cout << "Time = " << millis() << " " << spd << " " << dir << " " << battVoltage << " "; Serial.println(messageCount, DEC);
             #endif          
           #endif
           
@@ -1360,11 +1362,19 @@ int getBaro()
 void displayTemp(char units)
 {
   if(units == 'c' || units == 'C')
-    displayIntFloat(baro.readTemperature()*100, 'C');         //use baro pressure sensor for temp
-    //displayIntFloat(bno.getTemp()*100, 'C');                //use IMU chip for temp
+    #ifdef useBaroTemp
+      displayIntFloat(baro.readTemperature()*100, 'C');         //use baro pressure sensor for temp
+    #endif
+    #ifdef useBnoTemp
+      displayIntFloat(bno.getTemp()*100, 'C');                //use IMU chip for temp
+    #endif
   else if(units == 'f' || units == 'F')
-    displayIntFloat(ctof(baro.readTemperature())*100, 'F');   //use baro pressure sensor for temp
-    //displayIntFloat(ctof(bno.getTemp())*100,'F');           //use IMU chip for temp
+    #ifdef useBaroTemp
+      displayIntFloat(ctof(baro.readTemperature())*100, 'F');   //use baro pressure sensor for temp
+    #endif
+    #ifdef useBnoTemp
+      displayIntFloat(ctof(bno.getTemp())*100,'F');           //use IMU chip for temp
+    #endif
 }
 
 
