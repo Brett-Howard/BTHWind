@@ -553,7 +553,10 @@ switch(curMode)
         restoreBackground();
       }
       ///////do AppWind
-      if(wndSpd > 0) {
+      if(linkLost) {
+          scrollString("WAITING FOR MASTHEAD UNIT\0", 200);
+      }
+      else if(wndSpd > 0) {
         if(millis() > menuTimer + windUpdateRate) {
           displayIntFloat(wndSpd,'\0');
           menuTimer = millis();
@@ -570,7 +573,7 @@ switch(curMode)
       else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
       break;
 
-      case TrueWind:      //displays true wind speed and direction relative to the bow
+  case TrueWind:      //displays true wind speed and direction relative to the bow
       if(firstEntry) {
         scrollString("TRUE WIND\0", menuDelay);
         firstEntry = false;
@@ -597,7 +600,10 @@ switch(curMode)
           cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
         #endif
         
-        if(wndSpd > 0) {
+        if(linkLost) {
+          scrollString("WAITING FOR MASTHEAD UNIT\0", 200);
+        }
+        else if(wndSpd > 0) {
           displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
           displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
         }
