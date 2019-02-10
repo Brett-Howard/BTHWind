@@ -35,6 +35,8 @@
 #define batteryLogInterval 600000   //every 10 minutes
 #define radioTimeoutReset 5000      //reset radio reception variables if no message is received for this period.
 
+#define informationScrollSpeed 150  //scroll speed of informational text (ie. Waiting for GPS fix or Waiting for Masthead unit)
+
 //#define RGB
 #define RGBW              //These defines will change the instantiation of the LED ring and the color table.
 
@@ -554,7 +556,7 @@ switch(curMode)
       }
       ///////do AppWind
       if(linkLost) {
-          scrollString("WAITING FOR MASTHEAD UNIT\0", 200);
+          showLinkLostMessage();
       }
       else if(wndSpd > 0) {
         if(millis() > menuTimer + windUpdateRate) {
@@ -601,7 +603,7 @@ switch(curMode)
         #endif
         
         if(linkLost) {
-          scrollString("WAITING FOR MASTHEAD UNIT\0", 200);
+          showLinkLostMessage();
         }
         else if(wndSpd > 0) {
           displayIntFloat(getTWS(_AWA, wndSpd, _SOG), '\0');
@@ -813,7 +815,12 @@ switch(curMode)
         firstEntry = false;
       }
       ///////////////Do MastBatt
-      displayIntFloat(battVoltage, 'V');
+      if(linkLost) {
+        showLinkLostMessage();
+      }
+      else {
+        displayIntFloat(battVoltage, 'V');
+      }
       ///////////////Transition State
       if(gesture == DIR_LEFT) { curMode = CompHead; firstEntry = true; }
       else if(gesture == DIR_RIGHT) { curMode = Temp; firstEntry = true; }
@@ -1065,11 +1072,6 @@ switch(curMode)
   //Field 3: Battery voltage*100
   //Field 4: Free running 8-bit counter (for message loss detection) Each message should be sequential. 
   #ifdef LoRaRadioPresent
-    if (linkLost) {  //flag from the once per second timer ISR
-      battVoltage = 999;
-      //speed and direction are already handled by the slowTimer function in the Anemometer object
-      //messageCount resetting is not needed.
-    }
     if (rf95.available())
     {
       uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
@@ -1319,6 +1321,11 @@ void scrollString(const char s[], uint16_t speed)
     delay(speed);
   }
   delay(speed*2);
+}
+
+void showLinkLostMessage ()
+{
+  scrollString("WAITING FOR MASTHEAD UNIT\0", informationScrollSpeed);
 }
 
 //Allows displaying an integer value as the float that it represents.  Thus 123 will be shown as 1.23.  1234 will be shown as 12.34.
@@ -1849,7 +1856,7 @@ static void waitForFix()
 
     if ((uint16_t) millis() - lastToggle > 1000) {
       lastToggle += 1000;
-      scrollString( "WAITING FOR GPS FIX\0", 150 );
+      scrollString( "WAITING FOR GPS FIX\0", informationScrollSpeed );
       #ifdef debug
         Serial.write( '.' );
       #endif
