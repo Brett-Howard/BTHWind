@@ -1325,7 +1325,8 @@ void scrollString(const char s[], uint16_t speed)
 
 void showLinkLostMessage ()
 {
-  scrollString("WAITING FOR MASTHEAD UNIT\0", informationScrollSpeed);
+  //scrollString("WAITING FOR MASTHEAD UNIT\0", informationScrollSpeed);
+  displayString("WAIT");  //scrolling the string blocks for too long so just keeping it simple.
 }
 
 //Allows displaying an integer value as the float that it represents.  Thus 123 will be shown as 1.23.  1234 will be shown as 12.34.
