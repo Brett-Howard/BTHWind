@@ -586,17 +586,12 @@ switch(curMode)
       uint16_t _AWA;
       uint16_t _TWS;
 
-      //if(gps.available())
-        //globalFix = gps.read();    //this not needed because of the global read below
       if (globalFix.valid.speed) {
         _SOG = globalFix.speed()*100;
       }
 
       _AWA = Peet.getDirection();
       
-      //_SOG = 700;     //remove this later (only for testing)
-      //_AWA = 88;
-      //_AWS = 284;
       if(millis() > menuTimer + windUpdateRate) {
         #ifdef noisyDebug
           cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
@@ -724,8 +719,6 @@ switch(curMode)
       if(mag < 2)
         displayString("CAL ");
       else {
-        //bno.getEvent(&compEvent);  //Don't need to get a new event because the heel detection logic does it on every loop
-        
         heading = round(compEvent.orientation.x);  //round is more accurate than just letting it trunc shoot me I'm anal
         if(heading == 360) heading = 0;  //the round operation makes it possible for 360 to be reported for 359.5 to 359.99999
         displayAngle(heading, 'M');
@@ -744,8 +737,6 @@ switch(curMode)
         firstEntry = false;
       }
       //////////////////do COG
-      //if(gps.available())
-        //globalFix = gps.read();     //this read no longer needed because of the master one below
       if (globalFix.valid.speed) {
         displayAngle(uint16_t(globalFix.heading()), 'T');
       }
@@ -762,8 +753,6 @@ switch(curMode)
         firstEntry = false;
       }
       //////////////////do SOG
-      //if(gps.available())
-        //globalFix = gps.read();  //this read no longer needed because of the master one below
       if (globalFix.valid.speed) {
         displayIntFloat(globalFix.speed()*100, '\0');
       }
@@ -841,7 +830,11 @@ switch(curMode)
       }
       break;
   }
-  ///////////End of switch that handles menu items
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  ///////////End of switch that handles menu items //////////////////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   
   //Fetch all data from the GPS UART and feed it to the NeoGPS object
   //I tried to put this into a SerialEvent function but that seems to not work for me so I'll just leave this here.
