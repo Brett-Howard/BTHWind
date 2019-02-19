@@ -487,6 +487,9 @@ void loop() {
   strip.setBrightness(map(w,0,37889,5,255));
   strip.show();
 
+  //fetch new event from IMU.  This is done here to minimize reads to the IMU from multiple helper functions.
+  bno.getEvent(&compEvent);
+
   //Log battery voltage to a CSV file for graphing to understand how well the masthead unit's solar setup is working
   if(millis() > battTimer + batteryLogInterval)
   {
@@ -505,8 +508,7 @@ void loop() {
 
   //Determine if we're over heeling
   if(millis() > compTimer + 50) {   //only read compass and heel information every 50mS (20Hz) because it doesn't update any faster than that
-    bno.getEvent(&compEvent);
-    curHeelAngle = abs(compEvent.orientation.y);
+    curHeelAngle = getHeelAngle(compEvent);
     compTimer = millis();
   }
   if(curHeelAngle > heelAngle && heelAngle != 0 && curMode != Heel) {
@@ -710,17 +712,13 @@ switch(curMode)
       }
       /////////////do CompHead
       
-      static uint16_t heading;
-      static uint8_t system, gyro, accel, mag;
-      system = gyro = accel = mag = 0;
+      static int16_t heading;
+      
+      heading = getMagneticHeading(compEvent);
 
-      bno.getCalibration(&system, &gyro, &accel, &mag);
-
-      if(mag < 2)
+      if(heading < 0)
         displayString("CAL ");
       else {
-        heading = round(compEvent.orientation.x);  //round is more accurate than just letting it trunc shoot me I'm anal
-        if(heading == 360) heading = 0;  //the round operation makes it possible for 360 to be reported for 359.5 to 359.99999
         displayAngle(heading, 'M');
       }
 
@@ -913,28 +911,7 @@ switch(curMode)
           if(_SOG_ > boatMax) { boatMax = _SOG_; }
         }
 
-        //Get boat heading for TWS calculations
-        //use gps heading if traveling over 2 knot otherwise use the compass heading
-        if(_SOG_ > 200 && globalFix.valid.heading)
-          _COG_ = globalFix.heading();
-        else {
-          static uint8_t system, gyro, accel, mag;
-          system = gyro = accel = mag = 0;
-
-          //only use compass heading if IMU has a quality fix
-          bno.getCalibration(&system, &gyro, &accel, &mag);
-          if(mag > 1) {   //if the compass is within calibaration
-            //variance added to compass heading becasue its magnetic referenced and we want wind true referenced.
-            _COG_ = int(round(compEvent.orientation.x) + variance + 360) % 360;  //don't need to check for ==360 rounding errors here because the math works out the same
-          }
-          else {
-            //not adding variance because GPS heading is true referenced
-            if(globalFix.valid.heading)
-            {
-              _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
-            }
-          }
-        }
+        _COG_ = getOptimizedHeading(compEvent);
         
         //Add values into the temp stat array
         if(i_log < elements)
@@ -1142,6 +1119,62 @@ float radToDeg(float rad) { return (rad * 180 / PI); }  //convert radians to deg
 float ctof(float c) { return c*1.8+32; }   //convert celcius to farhenheit
 
 float ftoc(float f) { return f-32*0.555556; }    //convert farhenheit to celcius
+
+//get Optimized Heading
+//Returns magnetic heading if < 2knots.  Otherwise returns GPS heading.  Negative values indicate error.
+int16_t getOptimizedHeading(sensors_event_t event) 
+{
+  uint16_t _SOG_;
+
+  _SOG_ = globalFix.speed() * 100;  //get GPS speed
+
+  //Get boat heading for TWS calculations
+  //use gps heading if traveling over 2 knot otherwise use the compass heading
+  if(_SOG_ > 200 && globalFix.valid.heading)
+    return globalFix.heading();  
+  else {
+    static uint8_t system, gyro, accel, mag;
+    system = gyro = accel = mag = 0;
+
+    //only use compass heading if IMU has a quality fix
+    bno.getCalibration(&system, &gyro, &accel, &mag);
+    if(mag > 2) {   //if the compass is within calibaration
+      //variance added to compass heading becasue its magnetic referenced and we want wind true referenced.
+      return int(round(event.orientation.x) + variance + 360) % 360;  
+    }
+    else {
+      //not adding variance because GPS heading is true referenced
+      if(globalFix.valid.heading)
+      {
+        return globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
+      }
+    }
+  }
+}
+
+//get Magnetic Heading
+//Asks the BNO object for a new event and returns the value.  Negative values mean unit is not in cal.
+int16_t getMagneticHeading(sensors_event_t event)
+{
+  static uint8_t system, gyro, accel, mag;
+  system = gyro = accel = mag = 0;
+
+  bno.getCalibration(&system, &gyro, &accel, &mag);
+
+  if(mag < 2)
+    return -1;
+  else
+  {
+    return int16_t(round(event.orientation.x)) % int16_t(360);
+  }
+}
+
+//get Heel Angle.
+//returns the absolute value of the lateral heel angle.  The accelerometer is very easy to calibrate so its not checked.
+uint8_t getHeelAngle(sensors_event_t event)
+{
+  return abs(event.orientation.y);
+}
 
 //get True Wind Speed
 //returns true wind speed given Aparent Wind Angle, Apparent Wind Speed, and Speed Over Ground
