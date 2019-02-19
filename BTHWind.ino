@@ -911,7 +911,7 @@ switch(curMode)
           if(_SOG_ > boatMax) { boatMax = _SOG_; }
         }
 
-        _COG_ = getOptimizedHeading(compEvent);
+        _COG_ = getCOG(compEvent);
         
         //Add values into the temp stat array
         if(i_log < elements)
@@ -1122,7 +1122,7 @@ float ftoc(float f) { return f-32*0.555556; }    //convert farhenheit to celcius
 
 //get Optimized Heading
 //Returns magnetic heading if < 2knots.  Otherwise returns GPS heading.  Negative values indicate error.
-int16_t getOptimizedHeading(sensors_event_t event) 
+int16_t getCOG(sensors_event_t event) 
 {
   uint16_t _SOG_;
 
