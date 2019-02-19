@@ -1120,7 +1120,7 @@ float ctof(float c) { return c*1.8+32; }   //convert celcius to farhenheit
 
 float ftoc(float f) { return f-32*0.555556; }    //convert farhenheit to celcius
 
-//get Optimized Heading
+//get Course Over Ground
 //Returns magnetic heading if < 2knots.  Otherwise returns GPS heading.  Negative values indicate error.
 //returned values are in degrees refereced to *TRUE* north (magnetic values have variance added to them.)
 int16_t getCOG(sensors_event_t event) 
