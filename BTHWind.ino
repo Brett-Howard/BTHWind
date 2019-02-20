@@ -136,7 +136,7 @@ SparkFun_APDS9960 apds = SparkFun_APDS9960();
 static NMEAGPS  gps;
 static gps_fix globalFix;
 
-enum Mode { AppWind, WindStats, TrueWind, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
+enum Mode { AppWind, WindStats, TrueWind, TrueHead, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
 
 int16_t bowOffset, variance;
 uint8_t speedMAD;
@@ -617,7 +617,42 @@ switch(curMode)
       else if(gesture == DIR_UP) { curMode = AppWind; firstEntry = true; }
       else if(gesture == DIR_DOWN) { curMode = WindStats; firstEntry = true; }
       break;
-  
+
+  case TrueHead:      //displays true wind compass heading 
+      if(firstEntry) {
+        scrollString("TRUE WIND\0", menuDelay);
+        firstEntry = false;
+      }
+      //////////////do TrueHead
+      if (globalFix.valid.speed) {
+        _SOG = globalFix.speed()*100;
+      }
+
+      _AWA = Peet.getDirection();
+      
+      if(millis() > menuTimer + windUpdateRate) {
+        #ifdef noisyDebug
+          cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
+        #endif
+        
+        if(linkLost) {
+          showLinkLostMessage();
+        }
+        else if(wndSpd > 0) {
+          displayIntFloat(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), '\0');
+          displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
+        }
+        else { displayString("CALM"); }
+
+        menuTimer = millis();
+      }   
+      
+      //////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
+      else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
+      break;  
   
   case WindStats:     //displays statistical information about the current trip
       char temp[5];
