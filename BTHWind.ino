@@ -573,7 +573,7 @@ switch(curMode)
       //////Transition state
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
       else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
-      else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = TrueHead; firstEntry = true; }
       else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
       break;
 
@@ -620,7 +620,7 @@ switch(curMode)
 
   case TrueHead:      //displays true wind compass heading 
       if(firstEntry) {
-        scrollString("TRUE WIND\0", menuDelay);
+        scrollString("TRUE HEADING\0", menuDelay);
         firstEntry = false;
       }
       //////////////do TrueHead
@@ -737,7 +737,7 @@ switch(curMode)
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
       else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
       else if(gesture == DIR_UP) { curMode = TrueWind; firstEntry = true; }
-      else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
+      else if(gesture == DIR_DOWN) { curMode = TrueHead; firstEntry = true; }
       break;
   
   case CompHead:     //displays magnetometer based heading (compass)
