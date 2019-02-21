@@ -630,6 +630,10 @@ switch(curMode)
 
       _AWA = Peet.getDirection();
       
+
+      //_SOG = 001;
+      //_AWA = 45;
+      //wndSpd = 375;
       if(millis() > menuTimer + windUpdateRate) {
         #ifdef noisyDebug
           cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
@@ -639,8 +643,8 @@ switch(curMode)
           showLinkLostMessage();
         }
         else if(wndSpd > 0) {
-          displayIntFloat(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), '\0');
-          displayWindPixel(getTWA(_AWA, wndSpd, _SOG), WHITE);
+          displayAngle(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), 'T');
+          displayWindPixel(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), WHITE);
         }
         else { displayString("CALM"); }
 
@@ -891,8 +895,9 @@ switch(curMode)
   if(Peet.available()) {        //only true when new information has been received from the anemometer object
     
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop when necessary because its an expensive operation (right here)
-  
-    if(wndSpd > 0 && curMode != TrueWind)  //if we have wind and aren't displaying true wind
+    
+    //TODO: Remove this displayWindPixel() and put a copy in each mode so that its easier to decide what is displayed on the ring in each mode.  
+    if(wndSpd > 0 && curMode != TrueWind && curMode != TrueHead)  //if we have wind and aren't displaying true wind
         displayWindPixel(Peet.getDirection(), WHITE);
     else if(wndSpd == 0)      //if wind is calm
       restoreBackground();    //this should turn the pixel off in Apparent and True wind modes.
@@ -1239,18 +1244,14 @@ uint16_t getTWA(uint16_t AWA, uint16_t AWS, uint16_t SOG)
   float tanAlpha = sin(_AWA)/(float(AWS)/float(SOG)-cos(_AWA));
   float Alpha = atan(tanAlpha);
   float tdiff = round(radToDeg(_AWA+Alpha));
-  if(AWA == 0) {
-    if(AWS >= SOG)
-      return(0);
-    else
-      return(180);
+  if(AWA == 0) {      //handle the singularity
+    if(AWS >= SOG)    //if the wind is faster than we are moving 
+      return(0);        //the wind is from dead ahead
+    else              //otherwise
+      return(180);      //the wind is from dead behind
   }
-  if(tdiff < 0)
-    return(tdiff+180);
-  else if(tdiff > 359)
-    return(tdiff-180);
-  else
-    return(tdiff);
+    
+  return((uint16_t(tdiff)+360) % 360);  
 }
 
 //get True Wind Direction
@@ -1729,6 +1730,9 @@ bool initSD() {
   return retval;
 }  //initSD
 
+///////////////////////////////////////////////////////FAT File System Handling Functions//////////////////////////////////////
+
+
 //This is the callback function for the SdFat file system library so that it can properly timestamp files it modifies and creates on the SD card
 void dateTime(uint16_t* date, uint16_t* time) {
   time_t local;
@@ -1737,6 +1741,9 @@ void dateTime(uint16_t* date, uint16_t* time) {
   *date = FAT_DATE(year(local), month(local), day(local));
   *time = FAT_TIME(hour(local), minute(local), second(local));
 }
+
+///////////////////////////////////////////////////////CSV File Handling Functions////////////////////////////////////////////
+
 
 //these read functions should be cleaned up later they were just copied from one of the SdFat libraries and are more complex than probably necessary
 int csvReadText(SdFile* file, char* str, size_t size, char delim) {
