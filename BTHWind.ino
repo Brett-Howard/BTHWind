@@ -630,6 +630,9 @@ switch(curMode)
 
       _AWA = Peet.getDirection();
       
+      /*_SOG = 001;
+      _AWA = 40;
+      wndSpd = 375;*/
       if(millis() > menuTimer + windUpdateRate) {
           cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
         
