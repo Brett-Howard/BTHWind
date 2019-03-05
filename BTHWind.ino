@@ -630,19 +630,17 @@ switch(curMode)
 
       _AWA = Peet.getDirection();
       
-
-      _SOG = 001;
-      _AWA = 40;
-      wndSpd = 375;
       if(millis() > menuTimer + windUpdateRate) {
-        #ifdef noisyDebug
           cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
-        #endif
         
         if(linkLost) {
           showLinkLostMessage();
         }
         else if(wndSpd > 0) {
+        #ifdef noisyDebug
+          cout << "cog = " << getCOG(compEvent) << endl;
+          cout << "twd = " << getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)) << endl;
+        #endif
           displayAngle(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), 'T');
           displayWindPixel(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), WHITE);
         }
@@ -899,8 +897,8 @@ switch(curMode)
     //TODO: Remove this displayWindPixel() and put a copy in each mode so that its easier to decide what is displayed on the ring in each mode.  
     if(wndSpd > 0 && curMode != TrueWind && curMode != TrueHead)  //if we have wind and aren't displaying true wind
         displayWindPixel(Peet.getDirection(), WHITE);
-    //else if(wndSpd == 0)      //if wind is calm
-      //restoreBackground();    //this should turn the pixel off in Apparent and True wind modes.
+    else if(wndSpd == 0)      //if wind is calm
+      restoreBackground();    //this should turn the pixel off in Apparent and True wind modes.
 
     static uint16_t i_log = 0;
 
@@ -1090,7 +1088,6 @@ switch(curMode)
 
       if (rf95.recv(buf, &len))
       {
-        blip(GREEN_LED_PIN, 1, 200);
         linkLost = false;   //link is up because we're receiving messages.
         uint16_t spd;
         int16_t dir;
@@ -1138,7 +1135,7 @@ switch(curMode)
           Peet.processWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit ACK response
-        rf95.waitPacketSent();
+        //rf95.waitPacketSent();
       }
       else {
         #ifdef debug
