@@ -631,9 +631,9 @@ switch(curMode)
       _AWA = Peet.getDirection();
       
 
-      //_SOG = 001;
-      //_AWA = 45;
-      //wndSpd = 375;
+      _SOG = 001;
+      _AWA = 40;
+      wndSpd = 375;
       if(millis() > menuTimer + windUpdateRate) {
         #ifdef noisyDebug
           cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
@@ -899,8 +899,8 @@ switch(curMode)
     //TODO: Remove this displayWindPixel() and put a copy in each mode so that its easier to decide what is displayed on the ring in each mode.  
     if(wndSpd > 0 && curMode != TrueWind && curMode != TrueHead)  //if we have wind and aren't displaying true wind
         displayWindPixel(Peet.getDirection(), WHITE);
-    else if(wndSpd == 0)      //if wind is calm
-      restoreBackground();    //this should turn the pixel off in Apparent and True wind modes.
+    //else if(wndSpd == 0)      //if wind is calm
+      //restoreBackground();    //this should turn the pixel off in Apparent and True wind modes.
 
     static uint16_t i_log = 0;
 
@@ -1206,7 +1206,7 @@ int16_t getMagneticHeading(sensors_event_t event)
     return -1;
   else
   {
-    return int16_t(round(event.orientation.x)) % int16_t(360);
+    return int16_t((round(event.orientation.x)) + 360) % int16_t(360);
   }
 }
 
