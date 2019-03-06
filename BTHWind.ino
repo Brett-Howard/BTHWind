@@ -14,6 +14,7 @@
 #include <GPSport.h>                    //GPS Support
 #include <RH_RF95.h>                    //LoRa Radio support
 #include <Timezone.h>                   //allows for conversion to local time
+#include <QList.h>                      //Linked List Library (used for averaging in TrueHead menu item)
 
 
 //I2C Address Information (just to make sure there are no collisions)
@@ -624,6 +625,8 @@ switch(curMode)
         firstEntry = false;
       }
       //////////////do TrueHead
+      static QList<uint16_t> TWDAry;
+
       if (globalFix.valid.speed) {
         _SOG = globalFix.speed()*100;
       }
@@ -640,11 +643,26 @@ switch(curMode)
           showLinkLostMessage();
         }
         else if(wndSpd > 0) {
-        #ifdef noisyDebug
-          cout << "cog = " << getCOG(compEvent) << endl;
-          cout << "twd = " << getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)) << endl;
-        #endif
-          displayAngle(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), 'T');
+          #ifdef noisyDebug
+            cout << "cog = " << getCOG(compEvent) << endl;
+            cout << "twd = " << getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)) << endl;
+          #endif
+          //add a new TWD to the list
+          TWDAry.push_back(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)));
+          //remove an element once we have enough values.
+          if(TWDAry.size() > 30) {                                    //TODO: Make this number come from the config file.
+            TWDAry.pop_front();
+          }
+          //Accumulate values
+          uint16_t AvgTWD = 0;
+          for(int i(0); i < TWDAry.size(); i++) {
+            AvgTWD += TWDAry[i];
+          }
+          //calculate avarage
+          AvgTWD /= TWDAry.size();
+          
+          //display average
+          displayAngle(AvgTWD, 'T');
           displayWindPixel(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), WHITE);
         }
         else { displayString("CALM"); }
