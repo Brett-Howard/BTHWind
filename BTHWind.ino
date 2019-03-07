@@ -141,6 +141,7 @@ enum Mode { AppWind, WindStats, TrueWind, TrueHead, CompHead, COG, SOG, Baro, Te
 
 int16_t bowOffset, variance;
 uint8_t speedMAD;
+uint8_t TrueHeadAvgDepth;
 uint16_t windUpdateRate;
 uint16_t directionFilter;
 uint8_t heelAngle;
@@ -492,7 +493,7 @@ void loop() {
   bno.getEvent(&compEvent);
 
   //Log battery voltage to a CSV file for graphing to understand how well the masthead unit's solar setup is working
-  if(millis() > battTimer + batteryLogInterval)
+  if(millis() > battTimer + batteryLogInterval && battVoltage != 999)
   {
     local = getLocalTime();
 
@@ -648,9 +649,9 @@ switch(curMode)
             cout << "twd = " << getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)) << endl;
           #endif
           //add a new TWD to the list
-          TWDAry.push_back(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)));
+          TWDAry.push_back(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)));        //TODO: Calculate this always so that you alwasy have a full average array (not just once you've entered the menu item.)
           //remove an element once we have enough values.
-          if(TWDAry.size() > 30) {                                    //TODO: Make this number come from the config file.
+          if(TWDAry.size() > TrueHeadAvgDepth-1) {
             TWDAry.pop_front();
           }
           //Accumulate values
@@ -1584,7 +1585,9 @@ static void blip(int ledPin, int times, int dur) {
 //This is a way of saying we've died on the vine.  This function is meant to never return.
 static void failBlink() {
   pinMode(RED_LED_PIN, OUTPUT );  //seems that I need this here because something is breaking this.
-  cout << "got to FailBlink" << endl;
+  #ifdef debug
+    cout << "got to FailBlink" << endl;
+  #endif
   displayString("FAIL");
   while(1) blip(RED_LED_PIN, 1, 75);
 } //failBlink
@@ -1620,6 +1623,7 @@ static bool readConfig () {
       configFile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
       configFile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
       configFile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the wind speed data)\n"));
+      configFile.print(F("# TrueHeadAvgDepth: Number of samples to average for true wind heading menu item.  Samples are taken at WindUpdateRate\n"));
       configFile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
       configFile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
       configFile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
@@ -1649,7 +1653,8 @@ static bool readConfig () {
       configFile.print(F("HeelAngle=15\n"));
       configFile.print(F("MenuScrollSpeed=100\n"));
       configFile.print(F("TempUnits=f\n"));
-      configFile.print(F("SpeedMAD=5\n"));          
+      configFile.print(F("SpeedMAD=5\n"));
+      configFile.print(F("TrueHeadAvgDepth=30\n"));   //True wind Heading Average depth (number of samples to average taken once per WindUpdateRate)          
       configFile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
       configFile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
       configFile.print(F("GPSUpdateRate=1000\n"));    //1Hz 
@@ -1694,6 +1699,7 @@ static bool readConfig () {
     if (cfg.nameIs("TempUnits")) { strncpy(&tempUnits, cfg.copyValue(), 1); }
     if (cfg.nameIs("MenuScrollSpeed")) { menuDelay = cfg.getIntValue(); }
     if (cfg.nameIs("SpeedMAD")) { speedMAD = cfg.getIntValue(); }
+    if (cfg.nameIs("TrueHeadAvgDepth")) {TrueHeadAvgDepth = cfg.getIntValue(); }
     if (cfg.nameIs("WindUpdateRate")) { windUpdateRate = cfg.getIntValue(); }
     if (cfg.nameIs("DirectionFilter")) { directionFilter = cfg.getIntValue(); }
     if (cfg.nameIs("Timezone")) { TimeZone = cfg.getIntValue(); }
