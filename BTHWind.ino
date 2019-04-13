@@ -525,6 +525,8 @@ void loop() {
   
   //use DIR_NEAR and DIR_FAR gestures to lock the menu
   if(gestureSensed || apds.isGestureAvailable()) {   //check the interrupt and poll just incase we missed it during an SD file I/O operation
+    detachInterrupt(digitalPinToInterrupt(GESTURE_INT));  //detaching Interrupt here because I've seen an example that does something similar... 
+                                                          //hopefully this possibly fixes the crashing when something is held in front of the gesture sensor.
     gestureSensed = false;
     gesture = apds.readGesture();
     if (gesture == DIR_NEAR || locked)
@@ -542,6 +544,7 @@ void loop() {
         gesture = 0;  //make all gestures go away so they don't change menu status
       }
     }
+    
   }
 
 apds.clearProximityInt();
@@ -1699,7 +1702,7 @@ static bool readConfig () {
     if (cfg.nameIs("TempUnits")) { strncpy(&tempUnits, cfg.copyValue(), 1); }
     if (cfg.nameIs("MenuScrollSpeed")) { menuDelay = cfg.getIntValue(); }
     if (cfg.nameIs("SpeedMAD")) { speedMAD = cfg.getIntValue(); }
-    if (cfg.nameIs("TrueHeadAvgDepth")) {TrueHeadAvgDepth = cfg.getIntValue(); }
+    if (cfg.nameIs("TrueHeadAvgDepth")) { TrueHeadAvgDepth = cfg.getIntValue(); }
     if (cfg.nameIs("WindUpdateRate")) { windUpdateRate = cfg.getIntValue(); }
     if (cfg.nameIs("DirectionFilter")) { directionFilter = cfg.getIntValue(); }
     if (cfg.nameIs("Timezone")) { TimeZone = cfg.getIntValue(); }
