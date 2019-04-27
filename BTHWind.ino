@@ -8,7 +8,7 @@
 #include <Adafruit_BMP280.h>            //support for barometric pressure sensor
 #include <Adafruit_GFX.h>               //Font support for 14-seg LEDs
 #include <Adafruit_LEDBackpack.h>       //Support for 14-seg LEDs
-#include "SparkFun_APDS9960.h"          //Sparkfun APDS9960 Ambient Light/Gesutre Sensor library (which actually works)
+#include <SparkFun_APDS9960.h>          //Sparkfun APDS9960 Ambient Light/Gesutre Sensor library (which actually works)
                                         //using a local copy to allow for shortening the gesutre delay
 #include <NMEAGPS.h>                    //GPS Support
 #include <GPSport.h>                    //GPS Support
@@ -198,7 +198,7 @@ void setup() {
   strip.clear();
   strip.show(); // Initialize all pixels to 'off'
 
-  alpha4.begin(0x70);  // pass in the address
+  alpha4.begin(0x70);  // pass in the address for the alpha numeric display
   scrollString("BTHWind\0", 250);
   
 ///////////////////////////////////////Startup Barometric Sensor/////////////////////////////////////////////////////
@@ -301,7 +301,7 @@ void setup() {
   }
   
 //////////////////////////////////////Startup Magnetometer and Accelerometer//////////////////////////////////////////
-  if(!bno.begin())
+  if(!bno.begin())  //9DOF IMU
   {
     #ifdef debug
       Serial.println("BNO055 initialization failed");
@@ -423,7 +423,7 @@ void setup() {
 
   //now that DST and ST are populated update timezone with the time change rules from the SD card
   localTZ.setRules(DSTrule, STrule);
-
+  
   //write update rate into the GPS  (has to be moved here after we've fetched the value from the config)
   sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
   gps.send( &gpsPort, tmp ); //set fix update rate
@@ -700,64 +700,64 @@ switch(curMode)
       /////////////do WindStats
 
       //show the values on the display
-      if(millis() > menuTimer && millis() < menuTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
+      if(millis() > menuTimer && millis() < menuTimer+2000) {   //this timing method is really annoying but its good to keep loop moving faster
         displayString("DATE");
       }
-      else if(millis() >= menuTimer+1000 && millis() < menuTimer+4000) {
+      else if(millis() >= menuTimer+2000 && millis() < menuTimer+6000) {
         sprintf(temp, "%02u%02u", month(startTime), day(startTime));
         displayString(temp);
       }
-      else if(millis() >= menuTimer+4000 && millis() < menuTimer+5000) {
+      else if(millis() >= menuTimer+6000 && millis() < menuTimer+8000) {
         displayString("STRT");
       }
-      else if(millis() >= menuTimer+5000 && millis() < menuTimer+8000) {
+      else if(millis() >= menuTimer+8000 && millis() < menuTimer+12000) {
         sprintf(temp, "%02u%02u", hour(startTime), minute(startTime));
         displayString(temp);
       }
-      else if(millis() >= menuTimer+8000 && millis() < menuTimer+9000) {
+      else if(millis() >= menuTimer+12000 && millis() < menuTimer+14000) {
         displayString("END ");
       }
-      else if(millis() >= menuTimer+9000 && millis() < menuTimer+12000) {
+      else if(millis() >= menuTimer+14000 && millis() < menuTimer+18000) {
         sprintf(temp, "%02u%02u", hour(endTime), minute(endTime));
         displayString(temp);
       }
-      else if(millis() >= menuTimer+12000 && millis() < menuTimer+13000) {
+      else if(millis() >= menuTimer+18000 && millis() < menuTimer+20000) {
         displayString("ASOG");
       }
-      else if(millis() >= menuTimer+13000 && millis() < menuTimer+16000) {
+      else if(millis() >= menuTimer+20000 && millis() < menuTimer+24000) {
         displayIntFloat(boatSpeedAccum, '\0');
       }
-      else if(millis() >= menuTimer+16000 && millis() < menuTimer+17000) {
+      else if(millis() >= menuTimer+24000 && millis() < menuTimer+26000) {
         displayString("MSOG");
       }
-      else if(millis() >= menuTimer+17000 && millis() < menuTimer+20000) {
+      else if(millis() >= menuTimer+26000 && millis() < menuTimer+30000) {
         displayIntFloat(boatMax, '\0');
       }
-      else if(millis() >= menuTimer+20000 && millis() < menuTimer+21000) {  
+      else if(millis() >= menuTimer+30000 && millis() < menuTimer+32000) {  
         displayString("AVGW");
       }
-      else if(millis() >= menuTimer+21000 && millis() < menuTimer+24000) {
+      else if(millis() >= menuTimer+32000 && millis() < menuTimer+36000) {
         displayIntFloat(speedAccum, '\0');
       }
-      else if(millis() >= menuTimer+24000 && millis() < menuTimer+25000) {
+      else if(millis() >= menuTimer+36000 && millis() < menuTimer+38000) {
         displayString("MAXW");
       }
-      else if(millis() >= menuTimer+25000 && millis() < menuTimer+28000) {
+      else if(millis() >= menuTimer+38000 && millis() < menuTimer+42000) {
         displayIntFloat(windMax, '\0');
       }
-      else if(millis() >= menuTimer+28000 && millis() < menuTimer+29000) {
+      else if(millis() >= menuTimer+42000 && millis() < menuTimer+44000) {
         displayString("AvWD");
       }
-      else if(millis() >= menuTimer+29000 && millis() < menuTimer+32000) {
+      else if(millis() >= menuTimer+44000 && millis() < menuTimer+48000) {
         displayAngle(AvWindDir, '\0');
       }
-      else if(millis() >= menuTimer+32000 && millis() < menuTimer+33000) {
+      else if(millis() >= menuTimer+48000 && millis() < menuTimer+50000) {
         displayString("BARO");
       }
-      else if(millis() >= menuTimer+33000 && millis() < menuTimer+36000) {
+      else if(millis() >= menuTimer+50000 && millis() < menuTimer+54000) {
         displayIntFloat(getBaro(), '\0');
       }
-      else if(millis() > menuTimer+36000)
+      else if(millis() > menuTimer+54000)
         menuTimer = millis();    //restart the menu again
 
       ////////////Transition State
@@ -1651,10 +1651,10 @@ static bool readConfig () {
       configFile.print(F("# \n"));
       configFile.print(F("#############################################################################################\n\n"));
 
-      configFile.print(F("BowOffset=337\n"));
+      configFile.print(F("BowOffset=345\n"));
       configFile.print(F("MagVariance=15\n"));
-      configFile.print(F("HeelAngle=15\n"));
-      configFile.print(F("MenuScrollSpeed=100\n"));
+      configFile.print(F("HeelAngle=20\n"));
+      configFile.print(F("MenuScrollSpeed=80\n"));
       configFile.print(F("TempUnits=f\n"));
       configFile.print(F("SpeedMAD=5\n"));
       configFile.print(F("TrueHeadAvgDepth=30\n"));   //True wind Heading Average depth (number of samples to average taken once per WindUpdateRate)          
@@ -1674,14 +1674,14 @@ static bool readConfig () {
       configFile.print(F("DSTDayOfWeek=1\n"));       //Sunday
       configFile.print(F("DSTMonth=3\n"));           //in March
       configFile.print(F("DSTHour=2\n"));            //at 2AM
-      configFile.print(F("DSTOffset=-420\n"));        //subtract 7 hours
+      configFile.print(F("DSTOffset=-420\n"));       //subtract 7 hours
       configFile.print(F("\n"));
       configFile.print(F("STName=PST\n"));           //Pacific STD time
       configFile.print(F("STWeek=2\n"));             //first
       configFile.print(F("STDayOfWeek=1\n"));        //Sunday
       configFile.print(F("STMonth=11\n"));           //in November
       configFile.print(F("STHour=2\n"));             //at 2AM
-      configFile.print(F("STOffset=-480\n"));        //subtract 8 hours
+      configFile.print(F("STOffset=-420\n"));        //subtract 8 hours (made wrong because it seems to not be working at the momnet)
       
       configFile.close();
       blip(GREEN_LED_PIN, 5, 200);
@@ -1705,7 +1705,6 @@ static bool readConfig () {
     if (cfg.nameIs("TrueHeadAvgDepth")) { TrueHeadAvgDepth = cfg.getIntValue(); }
     if (cfg.nameIs("WindUpdateRate")) { windUpdateRate = cfg.getIntValue(); }
     if (cfg.nameIs("DirectionFilter")) { directionFilter = cfg.getIntValue(); }
-    if (cfg.nameIs("Timezone")) { TimeZone = cfg.getIntValue(); }
     if (cfg.nameIs("GPSUpdateRate")) { delayBetweenFixes = cfg.getIntValue(); }
     if (cfg.nameIs("BaroRefAlt")) { baroRefAlt = cfg.getIntValue(); }
     if (cfg.nameIs("GPXLogging")) { GPXLogging = cfg.getBooleanValue(); }
@@ -1729,6 +1728,7 @@ static bool readConfig () {
     if (cfg.nameIs("STHour")) { STrule.hour = cfg.getIntValue(); }
     if (cfg.nameIs("STOffset")) { STrule.offset = cfg.getIntValue(); }
   }
+
   cfg.end();  //clean up
   return true;
 }  //readConfig
@@ -1901,7 +1901,7 @@ time_t getLocalTime()   //this function requires that you edit NeoTime.h to use 
 
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
     utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
-
+    
     time_t local = localTZ.toLocal(globalFix.dateTime);              //returns time_t with current local time.
     
     #ifdef debug
