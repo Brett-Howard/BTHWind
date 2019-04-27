@@ -8,12 +8,13 @@
 #include <Adafruit_BMP280.h>            //support for barometric pressure sensor
 #include <Adafruit_GFX.h>               //Font support for 14-seg LEDs
 #include <Adafruit_LEDBackpack.h>       //Support for 14-seg LEDs
-#include "SparkFun_APDS9960.h"          //Sparkfun APDS9960 Ambient Light/Gesutre Sensor library (which actually works)
+#include <SparkFun_APDS9960.h>          //Sparkfun APDS9960 Ambient Light/Gesutre Sensor library (which actually works)
                                         //using a local copy to allow for shortening the gesutre delay
 #include <NMEAGPS.h>                    //GPS Support
 #include <GPSport.h>                    //GPS Support
 #include <RH_RF95.h>                    //LoRa Radio support
 #include <Timezone.h>                   //allows for conversion to local time
+#include <QList.h>                      //Linked List Library (used for averaging in TrueHead menu item)
 
 
 //I2C Address Information (just to make sure there are no collisions)
@@ -136,10 +137,11 @@ SparkFun_APDS9960 apds = SparkFun_APDS9960();
 static NMEAGPS  gps;
 static gps_fix globalFix;
 
-enum Mode { AppWind, WindStats, TrueWind, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
+enum Mode { AppWind, WindStats, TrueWind, TrueHead, CompHead, COG, SOG, Baro, Temp, Heel, MastBatt }; 
 
 int16_t bowOffset, variance;
 uint8_t speedMAD;
+uint8_t TrueHeadAvgDepth;
 uint16_t windUpdateRate;
 uint16_t directionFilter;
 uint8_t heelAngle;
@@ -196,7 +198,7 @@ void setup() {
   strip.clear();
   strip.show(); // Initialize all pixels to 'off'
 
-  alpha4.begin(0x70);  // pass in the address
+  alpha4.begin(0x70);  // pass in the address for the alpha numeric display
   scrollString("BTHWind\0", 250);
   
 ///////////////////////////////////////Startup Barometric Sensor/////////////////////////////////////////////////////
@@ -299,7 +301,7 @@ void setup() {
   }
   
 //////////////////////////////////////Startup Magnetometer and Accelerometer//////////////////////////////////////////
-  if(!bno.begin())
+  if(!bno.begin())  //9DOF IMU
   {
     #ifdef debug
       Serial.println("BNO055 initialization failed");
@@ -421,7 +423,7 @@ void setup() {
 
   //now that DST and ST are populated update timezone with the time change rules from the SD card
   localTZ.setRules(DSTrule, STrule);
-
+  
   //write update rate into the GPS  (has to be moved here after we've fetched the value from the config)
   sprintf(tmp, "PMTK220,%d\0", delayBetweenFixes);
   gps.send( &gpsPort, tmp ); //set fix update rate
@@ -487,8 +489,11 @@ void loop() {
   strip.setBrightness(map(w,0,37889,5,255));
   strip.show();
 
+  //fetch new event from IMU.  This is done here to minimize reads to the IMU from multiple helper functions.
+  bno.getEvent(&compEvent);
+
   //Log battery voltage to a CSV file for graphing to understand how well the masthead unit's solar setup is working
-  if(millis() > battTimer + batteryLogInterval)
+  if(millis() > battTimer + batteryLogInterval && battVoltage != 999)
   {
     local = getLocalTime();
 
@@ -505,8 +510,7 @@ void loop() {
 
   //Determine if we're over heeling
   if(millis() > compTimer + 50) {   //only read compass and heel information every 50mS (20Hz) because it doesn't update any faster than that
-    bno.getEvent(&compEvent);
-    curHeelAngle = abs(compEvent.orientation.y);
+    curHeelAngle = getHeelAngle(compEvent);
     compTimer = millis();
   }
   if(curHeelAngle > heelAngle && heelAngle != 0 && curMode != Heel) {
@@ -521,6 +525,8 @@ void loop() {
   
   //use DIR_NEAR and DIR_FAR gestures to lock the menu
   if(gestureSensed || apds.isGestureAvailable()) {   //check the interrupt and poll just incase we missed it during an SD file I/O operation
+    detachInterrupt(digitalPinToInterrupt(GESTURE_INT));  //detaching Interrupt here because I've seen an example that does something similar... 
+                                                          //hopefully this possibly fixes the crashing when something is held in front of the gesture sensor.
     gestureSensed = false;
     gesture = apds.readGesture();
     if (gesture == DIR_NEAR || locked)
@@ -538,6 +544,7 @@ void loop() {
         gesture = 0;  //make all gestures go away so they don't change menu status
       }
     }
+    
   }
 
 apds.clearProximityInt();
@@ -571,7 +578,7 @@ switch(curMode)
       //////Transition state
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
       else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
-      else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = TrueHead; firstEntry = true; }
       else if(gesture == DIR_DOWN) { curMode = TrueWind; firstEntry = true; }
       break;
 
@@ -615,7 +622,64 @@ switch(curMode)
       else if(gesture == DIR_UP) { curMode = AppWind; firstEntry = true; }
       else if(gesture == DIR_DOWN) { curMode = WindStats; firstEntry = true; }
       break;
-  
+
+  case TrueHead:      //displays true wind compass heading 
+      if(firstEntry) {
+        scrollString("TRUE HEADING\0", menuDelay);
+        firstEntry = false;
+      }
+      //////////////do TrueHead
+      static QList<uint16_t> TWDAry;
+
+      if (globalFix.valid.speed) {
+        _SOG = globalFix.speed()*100;
+      }
+
+      _AWA = Peet.getDirection();
+      
+      /*_SOG = 001;
+      _AWA = 40;
+      wndSpd = 375;*/
+      if(millis() > menuTimer + windUpdateRate) {
+          cout << "AWA: "  << _AWA << " AWS: " << wndSpd << " SOG: " << _SOG << endl;
+        
+        if(linkLost) {
+          showLinkLostMessage();
+        }
+        else if(wndSpd > 0) {
+          #ifdef noisyDebug
+            cout << "cog = " << getCOG(compEvent) << endl;
+            cout << "twd = " << getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)) << endl;
+          #endif
+          //add a new TWD to the list
+          TWDAry.push_back(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)));        //TODO: Calculate this always so that you alwasy have a full average array (not just once you've entered the menu item.)
+          //remove an element once we have enough values.
+          if(TWDAry.size() > TrueHeadAvgDepth-1) {
+            TWDAry.pop_front();
+          }
+          //Accumulate values
+          uint16_t AvgTWD = 0;
+          for(int i(0); i < TWDAry.size(); i++) {
+            AvgTWD += TWDAry[i];
+          }
+          //calculate avarage
+          AvgTWD /= TWDAry.size();
+          
+          //display average
+          displayAngle(AvgTWD, 'T');
+          displayWindPixel(getTWD(_AWA,wndSpd,_SOG,getCOG(compEvent)), WHITE);
+        }
+        else { displayString("CALM"); }
+
+        menuTimer = millis();
+      }   
+      
+      //////////////Transition State
+      if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
+      else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
+      else if(gesture == DIR_UP) { curMode = WindStats; firstEntry = true; }
+      else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
+      break;  
   
   case WindStats:     //displays statistical information about the current trip
       char temp[5];
@@ -636,71 +700,71 @@ switch(curMode)
       /////////////do WindStats
 
       //show the values on the display
-      if(millis() > menuTimer && millis() < menuTimer+1000) {   //this timing method is really annoying but its good to keep loop moving faster
+      if(millis() > menuTimer && millis() < menuTimer+2000) {   //this timing method is really annoying but its good to keep loop moving faster
         displayString("DATE");
       }
-      else if(millis() >= menuTimer+1000 && millis() < menuTimer+4000) {
+      else if(millis() >= menuTimer+2000 && millis() < menuTimer+6000) {
         sprintf(temp, "%02u%02u", month(startTime), day(startTime));
         displayString(temp);
       }
-      else if(millis() >= menuTimer+4000 && millis() < menuTimer+5000) {
+      else if(millis() >= menuTimer+6000 && millis() < menuTimer+8000) {
         displayString("STRT");
       }
-      else if(millis() >= menuTimer+5000 && millis() < menuTimer+8000) {
+      else if(millis() >= menuTimer+8000 && millis() < menuTimer+12000) {
         sprintf(temp, "%02u%02u", hour(startTime), minute(startTime));
         displayString(temp);
       }
-      else if(millis() >= menuTimer+8000 && millis() < menuTimer+9000) {
+      else if(millis() >= menuTimer+12000 && millis() < menuTimer+14000) {
         displayString("END ");
       }
-      else if(millis() >= menuTimer+9000 && millis() < menuTimer+12000) {
+      else if(millis() >= menuTimer+14000 && millis() < menuTimer+18000) {
         sprintf(temp, "%02u%02u", hour(endTime), minute(endTime));
         displayString(temp);
       }
-      else if(millis() >= menuTimer+12000 && millis() < menuTimer+13000) {
+      else if(millis() >= menuTimer+18000 && millis() < menuTimer+20000) {
         displayString("ASOG");
       }
-      else if(millis() >= menuTimer+13000 && millis() < menuTimer+16000) {
+      else if(millis() >= menuTimer+20000 && millis() < menuTimer+24000) {
         displayIntFloat(boatSpeedAccum, '\0');
       }
-      else if(millis() >= menuTimer+16000 && millis() < menuTimer+17000) {
+      else if(millis() >= menuTimer+24000 && millis() < menuTimer+26000) {
         displayString("MSOG");
       }
-      else if(millis() >= menuTimer+17000 && millis() < menuTimer+20000) {
+      else if(millis() >= menuTimer+26000 && millis() < menuTimer+30000) {
         displayIntFloat(boatMax, '\0');
       }
-      else if(millis() >= menuTimer+20000 && millis() < menuTimer+21000) {  
+      else if(millis() >= menuTimer+30000 && millis() < menuTimer+32000) {  
         displayString("AVGW");
       }
-      else if(millis() >= menuTimer+21000 && millis() < menuTimer+24000) {
+      else if(millis() >= menuTimer+32000 && millis() < menuTimer+36000) {
         displayIntFloat(speedAccum, '\0');
       }
-      else if(millis() >= menuTimer+24000 && millis() < menuTimer+25000) {
+      else if(millis() >= menuTimer+36000 && millis() < menuTimer+38000) {
         displayString("MAXW");
       }
-      else if(millis() >= menuTimer+25000 && millis() < menuTimer+28000) {
+      else if(millis() >= menuTimer+38000 && millis() < menuTimer+42000) {
         displayIntFloat(windMax, '\0');
       }
-      else if(millis() >= menuTimer+28000 && millis() < menuTimer+29000) {
+      else if(millis() >= menuTimer+42000 && millis() < menuTimer+44000) {
         displayString("AvWD");
       }
-      else if(millis() >= menuTimer+29000 && millis() < menuTimer+32000) {
+      else if(millis() >= menuTimer+44000 && millis() < menuTimer+48000) {
         displayAngle(AvWindDir, '\0');
       }
-      else if(millis() >= menuTimer+32000 && millis() < menuTimer+33000) {
+      else if(millis() >= menuTimer+48000 && millis() < menuTimer+50000) {
         displayString("BARO");
       }
-      else if(millis() >= menuTimer+33000 && millis() < menuTimer+36000) {
+      else if(millis() >= menuTimer+50000 && millis() < menuTimer+54000) {
         displayIntFloat(getBaro(), '\0');
       }
-      else if(millis() > menuTimer+36000)
+      else if(millis() > menuTimer+54000)
         menuTimer = millis();    //restart the menu again
 
       ////////////Transition State
       if(gesture == DIR_LEFT) { curMode = Baro; firstEntry = true; }
       else if(gesture == DIR_RIGHT) { curMode = SOG; firstEntry = true; }
       else if(gesture == DIR_UP) { curMode = TrueWind; firstEntry = true; }
-      else if(gesture == DIR_DOWN) { curMode = AppWind; firstEntry = true; }
+      else if(gesture == DIR_DOWN) { curMode = TrueHead; firstEntry = true; }
       break;
   
   case CompHead:     //displays magnetometer based heading (compass)
@@ -710,17 +774,13 @@ switch(curMode)
       }
       /////////////do CompHead
       
-      static uint16_t heading;
-      static uint8_t system, gyro, accel, mag;
-      system = gyro = accel = mag = 0;
+      static int16_t heading;
+      
+      heading = getMagneticHeading(compEvent);
 
-      bno.getCalibration(&system, &gyro, &accel, &mag);
-
-      if(mag < 2)
+      if(heading < 0)
         displayString("CAL ");
       else {
-        heading = round(compEvent.orientation.x);  //round is more accurate than just letting it trunc shoot me I'm anal
-        if(heading == 360) heading = 0;  //the round operation makes it possible for 360 to be reported for 359.5 to 359.99999
         displayAngle(heading, 'M');
       }
 
@@ -858,8 +918,9 @@ switch(curMode)
   if(Peet.available()) {        //only true when new information has been received from the anemometer object
     
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop when necessary because its an expensive operation (right here)
-  
-    if(wndSpd > 0 && curMode != TrueWind)  //if we have wind and aren't displaying true wind
+    
+    //TODO: Remove this displayWindPixel() and put a copy in each mode so that its easier to decide what is displayed on the ring in each mode.  
+    if(wndSpd > 0 && curMode != TrueWind && curMode != TrueHead)  //if we have wind and aren't displaying true wind
         displayWindPixel(Peet.getDirection(), WHITE);
     else if(wndSpd == 0)      //if wind is calm
       restoreBackground();    //this should turn the pixel off in Apparent and True wind modes.
@@ -913,28 +974,7 @@ switch(curMode)
           if(_SOG_ > boatMax) { boatMax = _SOG_; }
         }
 
-        //Get boat heading for TWS calculations
-        //use gps heading if traveling over 2 knot otherwise use the compass heading
-        if(_SOG_ > 200 && globalFix.valid.heading)
-          _COG_ = globalFix.heading();
-        else {
-          static uint8_t system, gyro, accel, mag;
-          system = gyro = accel = mag = 0;
-
-          //only use compass heading if IMU has a quality fix
-          bno.getCalibration(&system, &gyro, &accel, &mag);
-          if(mag > 1) {   //if the compass is within calibaration
-            //variance added to compass heading becasue its magnetic referenced and we want wind true referenced.
-            _COG_ = int(round(compEvent.orientation.x) + variance + 360) % 360;  //don't need to check for ==360 rounding errors here because the math works out the same
-          }
-          else {
-            //not adding variance because GPS heading is true referenced
-            if(globalFix.valid.heading)
-            {
-              _COG_ = globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
-            }
-          }
-        }
+        _COG_ = getCOG(compEvent);
         
         //Add values into the temp stat array
         if(i_log < elements)
@@ -1073,7 +1113,6 @@ switch(curMode)
 
       if (rf95.recv(buf, &len))
       {
-        blip(GREEN_LED_PIN, 1, 200);
         linkLost = false;   //link is up because we're receiving messages.
         uint16_t spd;
         int16_t dir;
@@ -1121,7 +1160,7 @@ switch(curMode)
           Peet.processWirelessData(spd, dir);
         }
         rf95.send(data, sizeof(data));  //transmit ACK response
-        rf95.waitPacketSent();
+        //rf95.waitPacketSent();
       }
       else {
         #ifdef debug
@@ -1142,6 +1181,63 @@ float radToDeg(float rad) { return (rad * 180 / PI); }  //convert radians to deg
 float ctof(float c) { return c*1.8+32; }   //convert celcius to farhenheit
 
 float ftoc(float f) { return f-32*0.555556; }    //convert farhenheit to celcius
+
+//get Course Over Ground
+//Returns magnetic heading if < 2knots.  Otherwise returns GPS heading.  Negative values indicate error.
+//returned values are in degrees refereced to *TRUE* north (magnetic values have variance added to them.)
+int16_t getCOG(sensors_event_t event) 
+{
+  uint16_t _SOG_;
+
+  _SOG_ = globalFix.speed() * 100;  //get GPS speed
+
+  //Get boat heading for TWS calculations
+  //use gps heading if traveling over 2 knot otherwise use the compass heading
+  if(_SOG_ > 200 && globalFix.valid.heading)
+    return globalFix.heading();  
+  else {
+    static uint8_t system, gyro, accel, mag;
+    system = gyro = accel = mag = 0;
+
+    //only use compass heading if IMU has a quality fix
+    bno.getCalibration(&system, &gyro, &accel, &mag);
+    if(mag > 2) {   //if the compass is within calibaration
+      //variance added to compass heading becasue its magnetic referenced and we want wind true referenced.
+      return int(round(event.orientation.x) + variance + 360) % 360;  
+    }
+    else {
+      //not adding variance because GPS heading is true referenced
+      if(globalFix.valid.heading)
+      {
+        return globalFix.heading();  //GPS heading may be inaccurate at low speeds but its the best we've got if we get here
+      }
+    }
+  }
+}
+
+//get Magnetic Heading
+//Asks the BNO object for a new event and returns the value.  Negative values mean unit is not in cal.
+int16_t getMagneticHeading(sensors_event_t event)
+{
+  static uint8_t system, gyro, accel, mag;
+  system = gyro = accel = mag = 0;
+
+  bno.getCalibration(&system, &gyro, &accel, &mag);
+
+  if(mag < 2)
+    return -1;
+  else
+  {
+    return int16_t((round(event.orientation.x)) + 360) % int16_t(360);
+  }
+}
+
+//get Heel Angle.
+//returns the absolute value of the lateral heel angle.  The accelerometer is very easy to calibrate so its not checked.
+uint8_t getHeelAngle(sensors_event_t event)
+{
+  return abs(event.orientation.y);
+}
 
 //get True Wind Speed
 //returns true wind speed given Aparent Wind Angle, Apparent Wind Speed, and Speed Over Ground
@@ -1170,18 +1266,14 @@ uint16_t getTWA(uint16_t AWA, uint16_t AWS, uint16_t SOG)
   float tanAlpha = sin(_AWA)/(float(AWS)/float(SOG)-cos(_AWA));
   float Alpha = atan(tanAlpha);
   float tdiff = round(radToDeg(_AWA+Alpha));
-  if(AWA == 0) {
-    if(AWS >= SOG)
-      return(0);
-    else
-      return(180);
+  if(AWA == 0) {      //handle the singularity
+    if(AWS >= SOG)    //if the wind is faster than we are moving 
+      return(0);        //the wind is from dead ahead
+    else              //otherwise
+      return(180);      //the wind is from dead behind
   }
-  if(tdiff < 0)
-    return(tdiff+180);
-  else if(tdiff > 359)
-    return(tdiff-180);
-  else
-    return(tdiff);
+    
+  return((uint16_t(tdiff)+360) % 360);  
 }
 
 //get True Wind Direction
@@ -1496,7 +1588,9 @@ static void blip(int ledPin, int times, int dur) {
 //This is a way of saying we've died on the vine.  This function is meant to never return.
 static void failBlink() {
   pinMode(RED_LED_PIN, OUTPUT );  //seems that I need this here because something is breaking this.
-  cout << "got to FailBlink" << endl;
+  #ifdef debug
+    cout << "got to FailBlink" << endl;
+  #endif
   displayString("FAIL");
   while(1) blip(RED_LED_PIN, 1, 75);
 } //failBlink
@@ -1532,6 +1626,7 @@ static bool readConfig () {
       configFile.print(F("# MenuScrollSpeed: The number of mS to delay each character when scrolling menu item titles\n"));
       configFile.print(F("# TempUnits: c for Celcius f for Fahrenheit\n"));
       configFile.print(F("# SpeedMAD: Speed Moving Average Depth (this smooths and averages the wind speed data)\n"));
+      configFile.print(F("# TrueHeadAvgDepth: Number of samples to average for true wind heading menu item.  Samples are taken at WindUpdateRate\n"));
       configFile.print(F("# WindUpdateRate: Minimum delay between display updates for wind speed modes.\n"));
       configFile.print(F("# DirectionFilter: range (1-1000); lower = more filtering; 1000=no filtering\n"));
       configFile.print(F("#    Each wind direction delta is multiplied by DirectionFilter/1000\n"));
@@ -1556,12 +1651,13 @@ static bool readConfig () {
       configFile.print(F("# \n"));
       configFile.print(F("#############################################################################################\n\n"));
 
-      configFile.print(F("BowOffset=337\n"));
+      configFile.print(F("BowOffset=345\n"));
       configFile.print(F("MagVariance=15\n"));
-      configFile.print(F("HeelAngle=15\n"));
-      configFile.print(F("MenuScrollSpeed=100\n"));
+      configFile.print(F("HeelAngle=20\n"));
+      configFile.print(F("MenuScrollSpeed=80\n"));
       configFile.print(F("TempUnits=f\n"));
-      configFile.print(F("SpeedMAD=5\n"));          
+      configFile.print(F("SpeedMAD=5\n"));
+      configFile.print(F("TrueHeadAvgDepth=30\n"));   //True wind Heading Average depth (number of samples to average taken once per WindUpdateRate)          
       configFile.print(F("WindUpdateRate=1000\n"));   //500 repaints the display at a 2Hz rate, 1000 is 1Hz
       configFile.print(F("DirectionFilter=250\n"));  //250 displays 1/4 of the actual delta on each update
       configFile.print(F("GPSUpdateRate=1000\n"));    //1Hz 
@@ -1578,14 +1674,14 @@ static bool readConfig () {
       configFile.print(F("DSTDayOfWeek=1\n"));       //Sunday
       configFile.print(F("DSTMonth=3\n"));           //in March
       configFile.print(F("DSTHour=2\n"));            //at 2AM
-      configFile.print(F("DSTOffset=-420\n"));        //subtract 7 hours
+      configFile.print(F("DSTOffset=-420\n"));       //subtract 7 hours
       configFile.print(F("\n"));
       configFile.print(F("STName=PST\n"));           //Pacific STD time
       configFile.print(F("STWeek=2\n"));             //first
       configFile.print(F("STDayOfWeek=1\n"));        //Sunday
       configFile.print(F("STMonth=11\n"));           //in November
       configFile.print(F("STHour=2\n"));             //at 2AM
-      configFile.print(F("STOffset=-480\n"));        //subtract 8 hours
+      configFile.print(F("STOffset=-420\n"));        //subtract 8 hours (made wrong because it seems to not be working at the momnet)
       
       configFile.close();
       blip(GREEN_LED_PIN, 5, 200);
@@ -1606,9 +1702,9 @@ static bool readConfig () {
     if (cfg.nameIs("TempUnits")) { strncpy(&tempUnits, cfg.copyValue(), 1); }
     if (cfg.nameIs("MenuScrollSpeed")) { menuDelay = cfg.getIntValue(); }
     if (cfg.nameIs("SpeedMAD")) { speedMAD = cfg.getIntValue(); }
+    if (cfg.nameIs("TrueHeadAvgDepth")) { TrueHeadAvgDepth = cfg.getIntValue(); }
     if (cfg.nameIs("WindUpdateRate")) { windUpdateRate = cfg.getIntValue(); }
     if (cfg.nameIs("DirectionFilter")) { directionFilter = cfg.getIntValue(); }
-    if (cfg.nameIs("Timezone")) { TimeZone = cfg.getIntValue(); }
     if (cfg.nameIs("GPSUpdateRate")) { delayBetweenFixes = cfg.getIntValue(); }
     if (cfg.nameIs("BaroRefAlt")) { baroRefAlt = cfg.getIntValue(); }
     if (cfg.nameIs("GPXLogging")) { GPXLogging = cfg.getBooleanValue(); }
@@ -1632,6 +1728,7 @@ static bool readConfig () {
     if (cfg.nameIs("STHour")) { STrule.hour = cfg.getIntValue(); }
     if (cfg.nameIs("STOffset")) { STrule.offset = cfg.getIntValue(); }
   }
+
   cfg.end();  //clean up
   return true;
 }  //readConfig
@@ -1660,6 +1757,9 @@ bool initSD() {
   return retval;
 }  //initSD
 
+///////////////////////////////////////////////////////FAT File System Handling Functions//////////////////////////////////////
+
+
 //This is the callback function for the SdFat file system library so that it can properly timestamp files it modifies and creates on the SD card
 void dateTime(uint16_t* date, uint16_t* time) {
   time_t local;
@@ -1668,6 +1768,9 @@ void dateTime(uint16_t* date, uint16_t* time) {
   *date = FAT_DATE(year(local), month(local), day(local));
   *time = FAT_TIME(hour(local), minute(local), second(local));
 }
+
+///////////////////////////////////////////////////////CSV File Handling Functions////////////////////////////////////////////
+
 
 //these read functions should be cleaned up later they were just copied from one of the SdFat libraries and are more complex than probably necessary
 int csvReadText(SdFile* file, char* str, size_t size, char delim) {
@@ -1798,7 +1901,7 @@ time_t getLocalTime()   //this function requires that you edit NeoTime.h to use 
 
   if(globalFix.valid.time && globalFix.valid.date) {    //don't do the work if we don't have valid data
     utc = globalFix.dateTime;                           //sets utc to number of seconds since the epoch
-
+    
     time_t local = localTZ.toLocal(globalFix.dateTime);              //returns time_t with current local time.
     
     #ifdef debug
