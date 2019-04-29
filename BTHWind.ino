@@ -782,6 +782,7 @@ switch(curMode)
         displayString("CAL ");
       else {
         displayAngle(heading, 'M');
+        displayWindPixel(heading, WHITE);
       }
 
       ///////////Transition State
@@ -920,7 +921,7 @@ switch(curMode)
     wndSpd = Peet.getSpeed();   //wind speed should only be fetched once per loop when necessary because its an expensive operation (right here)
     
     //TODO: Remove this displayWindPixel() and put a copy in each mode so that its easier to decide what is displayed on the ring in each mode.  
-    if(wndSpd > 0 && curMode != TrueWind && curMode != TrueHead)  //if we have wind and aren't displaying true wind
+    if(wndSpd > 0 && curMode != TrueWind && curMode != TrueHead && curMode != CompHead)  //if we have wind and aren't displaying true wind
         displayWindPixel(Peet.getDirection(), WHITE);
     else if(wndSpd == 0)      //if wind is calm
       restoreBackground();    //this should turn the pixel off in Apparent and True wind modes.
